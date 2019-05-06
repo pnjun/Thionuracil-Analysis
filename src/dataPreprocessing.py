@@ -21,25 +21,27 @@ from attrdict import AttrDict
 
 #Configuration parameters:
 config = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : ['FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : [ 'FLASH2_USER1-2019-03-25T1219.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
                           'delay'      : '/FL2/Experiment/Pump probe laser/laser delay readback',
                           'waveplate'  : '/FL2/Experiment/Pump probe laser/FL24/attenuator position',
                           'times'      : '/Timing/time stamp/fl2user1',
-                          'shotGmd'    : '/FL2/Photon Diagnostic/GMD/Pulse resolved energy'
+                          'opisEV'     : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Processed/mean phtoton energy',
+                          'undulSetWL' : '/FL2/Electron Diagnostic/Undulator setting/set wavelength',
+                          'shotGmd'    : '/FL2/Photon Diagnostic/GMD/Pulse resolved energy/energy hall'
                         },                
            'slicing'  : { 'offset'   : 22000,       #Offset of first slice in samples (time zero)
                           'period'   : 9969.67,     #Rep period of FEL in samples
-                          'window'   : 2000 ,       #Shot lenght in samples
+                          'window'   : 2700 ,       #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 300,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
            'output'   : { 'fname' : 'compressed.h5',       
-                          'format': 'table'         # must be 'table' or 'fixed'
                         },           
                                               
-           'chunkSize': 200 #How many macrobunches to read/write at a time. Increasing increases RAM usage
+           'chunkSize': 50 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 config = AttrDict(config)
 
@@ -49,17 +51,20 @@ class Slicer:
         Prepares a list of indexes for tof trace slicing
         self.slices is a list of np.ranges, each one corresponding to a slice
         '''
-        shotsCuts = (sliceParams.offset + ( sliceParams.period * np.arange(sliceParams.shotsNum) )).astype(int)
+        shotsCuts = (sliceParams.offset + sliceParams.skipNum + ( sliceParams.period * np.arange(sliceParams.shotsNum) )).astype(int)
         self.slices = shotsCuts[:,None] + np.arange(sliceParams.window)
         
-    def __call__(self, tofData, pulses, mask = slice(None) ):
+        self.skipNum  = sliceParams.skipNum
+        self.sampleDT = 0.0005 # Time in us between each sample point (used for ev conversion)
+        
+    def __call__(self, tofData, pulses, mask = slice(None)):
         '''
         Slices tofData and returns a dataframe of shots. Each shot is indexed by macrobunch and shotnumber
         mask is a slice object indicating which subset of the data to operate on.
         '''
         pulseList = []
         indexList = []
-        for trace, pulseId in zip( tofData[mask], pulses['pulseid'][mask] ):
+        for trace, pulseId in zip( tofData[mask], pulses.index[mask] ):
             with suppress(AssertionError):
                 #Some pulses have no macrobunch number => we drop them
                 assert(pulseId != 0)
@@ -69,46 +74,63 @@ class Slicer:
         #Create multindexed series. Top level index is macrobunch number, sub index is shot num.
         try:
             shots = pd.concat(pulseList, keys=indexList)
-            shots.index.names = ['pulseId', 'shotNum']
+            shots.index.rename( ['pulseId', 'shotNum'], inplace=True )
+            shots.columns = self.Tof2eV( ( shots.columns + self.skipNum ) * self.sampleDT ) 
             return shots
         except ValueError:
             return None
+                        
+    def Tof2eV(self, tof):
+        ''' converts time of flight into ectronvolts '''
+        # Constants for conversion:
+        s = 1.7
+        m_over_e = 5.69
+        # UNITS AND ORDERS OF MAGNITUDE DO CHECK OUT    
+        return 0.5 * m_over_e * ( s / ( tof ) )**2
         
 def main():
     fout = pd.HDFStore(config.output.fname)
     
     for fname in config.data.files:
         with h5py.File( config.data.path + fname ) as dataf:
-            #Add macrobunch information to bunch DF
-            pulses = pd.DataFrame( { 'pulseid'    : dataf[config.hdf.times][:, 2], 
-                                     'time'       : dataf[config.hdf.times][:, 0],
-                                     'delay'      : dataf[config.hdf.delay][:, 0],
-                                     'waveplate'  : dataf[config.hdf.waveplate][:, 0],
-                                     'retarder'   : dataf[config.hdf.retarder][:, 0]
-                                   } ) 
-                                          
-            #Slice shot data and add it to shots DF
+            #Dataframe for macrobunch info
+            pulses = pd.DataFrame( { 'pulseId'     : dataf[config.hdf.times][:, 2].astype('int64'), #using int64 instead of uint64 since the latter is not always supported by pytables
+                                     'time'        : dataf[config.hdf.times][:, 0],
+                                     'undulatorEV' : 1239.84193 / dataf[config.hdf.undulSetWL][:, 0], #nanometers to eV
+                                     'opisEV'      : dataf[config.hdf.opisEV][:, 0],
+                                     'delay'       : dataf[config.hdf.delay][:, 0],
+                                     'waveplate'   : dataf[config.hdf.waveplate][:, 0],
+                                     'retarder'    : dataf[config.hdf.retarder][:, 0]
+                                   } , columns = [ 'pulseId', 'time', 'undulatorEV', 'opisEV', 'delay', 'waveplate', 'retarder' ]) 
+            pulses = pulses.set_index('pulseId')   
+            
+            #Dataframe for shot by shot metadata. TOF traces are in shotsTof                       
+            shotsData = pd.DataFrame( dataf[config.hdf.shotGmd], index=pulses.index ).stack()
+            shotsData.index.rename( ['pulseId', 'shotNum'], inplace=True )
+            shotsData.name = 'GMD'
+            
+            #Slice shot data and add it to shotsTof
             getSlices = Slicer(config.slicing)
-            chunks = np.arange(0, dataf[config.hdf.tofTrace].shape[0], config.chunkSize)
             
+            chunks = np.arange(0, dataf[config.hdf.tofTrace].shape[0], config.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
             for start in chunks:
-                print("processing %d" % (start))  
-                
-                shots = getSlices( dataf[config.hdf.tofTrace], pulses, slice(start,start+config.chunkSize) )
-                if shots is not None:
-                    fout.append( 'shots', shots , format=config.output.format)
+                print("processing %s, row %d of %d        \r" % (fname, start, dataf[config.hdf.tofTrace].shape[0] ),end='')
+         
+                shotsTof = getSlices( dataf[config.hdf.tofTrace], pulses, slice(start,start+config.chunkSize) )
+                if shotsTof is not None:
+                    fout.put( 'shotsTof', shotsTof, format='t', append = True )
             
-            shots = getSlices( dataf[config.hdf.tofTrace], pulses, slice(dataf[config.hdf.tofTrace].shape[0],None) )
-            if shots is not None:
-                fout.append( 'shots', shots , format=config.output.format)
+            shotsTof = getSlices( dataf[config.hdf.tofTrace], pulses, slice(dataf[config.hdf.tofTrace].shape[0],None) )
+            if shotsTof is not None:
+                fout.put( 'shotsTof', shotsTof, format='t', append = True )
 
-                                    
-        pulses = pulses.set_index('pulseid')  
-        pulses = pulses[pulses.index != 0] #purge invalid marcobunch id
-
-        fout.append('pulses', pulses, format=config.output.format, data_columns=True)
-        del pulses
-    
+            #Write out the other DF
+            shotsData = shotsData[ shotsData.index.get_level_values('pulseId') != 0 ] #purge invalid marcobunch id
+            pulses    = pulses   [ pulses.index != 0 ] 
+            fout.put('pulses'   , pulses   , format='t' , data_columns=True, append = True )
+            fout.put('shotsData', shotsData, format='t' , data_columns=True, append = True )
+        
+        
     fout.close()
 
         
