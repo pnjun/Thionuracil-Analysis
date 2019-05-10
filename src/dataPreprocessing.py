@@ -89,7 +89,7 @@ class Slicer:
         return 0.5 * m_over_e * ( s / ( tof ) )**2
         
 def main():
-    fout = pd.HDFStore(config.output.fname)
+    fout = pd.HDFStore(config.output.fname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
     
     for fname in config.data.files:
         with h5py.File( config.data.path + fname ) as dataf:
