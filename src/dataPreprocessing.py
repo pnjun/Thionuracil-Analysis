@@ -11,6 +11,10 @@ Requires: - pandas
           - attrdict
 
 For info contact Fabiano
+
+**** NOTES ****
+tof slicing offset might be slightly off -> eV conversion is wrong -> we need to check this
+laser slicing offset might be off by one shot -> swaps even and odd shots -> we need to check this
 '''
 
 import h5py
@@ -21,7 +25,7 @@ from attrdict import AttrDict
 
 #cfguration parameters:
 cfg = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : [ 'FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : [ 'FLASH2_USER1-2019-03-26T0500.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : { 
                           'folder' : '',#'/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
@@ -43,11 +47,13 @@ cfg = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/r
                           'skipNum'  : 300,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
-           'laserSl'  : { 'offset'   : 0,        #Same as above but for 100MHz laser trace slicing
-                          'period'   : 498.4835,    
-                          'window'   : 498 ,       
-                          'skipNum'  : 0,         
-                          'shotsNum' : 50,          
+           'laser'    : { 'slicing'  :  { 'offset'   : 850,        #Same as above but for 100MHz laser trace slicing
+                                          'period'   : 540,    
+                                          'window'   : 38,       
+                                          'skipNum'  : 0,         
+                                          'shotsNum' : 50,          
+                                        },
+                          'bgLvl'    : 32720       # Value for bg correction of Laser trace 
                         },
                                                    
            'chunkSize': 70 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
@@ -120,7 +126,7 @@ def main():
             
             #Slice shot data and add it to shotsTof
             tofSlicer = Slicer(cfg.slicing, eVnames = True)
-            laserSlicer = Slicer(cfg.laserSl)
+            laserSlicer = Slicer(cfg.laser.slicing)
             
             #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
             #       The removal must be done after the slicing, otherwise slicer will get arrays with non-matching number of macrobunches
@@ -134,15 +140,16 @@ def main():
                 shotsTof = tofSlicer( dataf[cfg.hdf.tofTrace], pulses, sl )
                 laserTr  = laserSlicer( dataf[cfg.hdf.laserTrace], pulses, sl )
                 
-                #plot one of the laserShots
+                #plot one of the traces
                 #import matplotlib.pyplot as plt
-                #laserTr.iloc[40].plot()
+                #plt.plot(dataf[cfg.hdf.laserTrace][10000])
                 #plt.show()
                                  
                 if shotsTof is not None: 
                     fout.put( 'shotsTof', shotsTof, format='t', append = True )
                     
-                    laserTr = laserTr.sum(axis=1) #integrate laser power
+                    laserTr -= cfg.laser.bgLvl
+                    laserTr = laserTr.sum(axis=1)  #integrate laser power
                     laserStatusList.append(laserTr)
             print()
             
