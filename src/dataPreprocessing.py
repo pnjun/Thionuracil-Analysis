@@ -21,7 +21,7 @@ from attrdict import AttrDict
 
 #Configuration parameters:
 config = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : [ 'FLASH2_USER1-2019-03-25T1219.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : [ 'FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -30,7 +30,8 @@ config = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'times'      : '/Timing/time stamp/fl2user1',
                           'opisEV'     : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Processed/mean phtoton energy',
                           'undulSetWL' : '/FL2/Electron Diagnostic/Undulator setting/set wavelength',
-                          'shotGmd'    : '/FL2/Photon Diagnostic/GMD/Pulse resolved energy/energy hall'
+                          'shotGmd'    : '/FL2/Photon Diagnostic/GMD/Pulse resolved energy/energy hall',
+                          'laserTrace' : '/FL2/Experiment/MTCA-EXP1/SIS8300 100MHz ADC/CH4/TD'
                         },                
            'slicing'  : { 'offset'   : 22000,       #Offset of first slice in samples (time zero)
                           'period'   : 9969.67,     #Rep period of FEL in samples
@@ -43,7 +44,7 @@ config = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'fname'  : 'compressed.h5',       
                         },           
                                               
-           'chunkSize': 50 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'chunkSize': 51 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 config = AttrDict(config)
 
@@ -111,21 +112,21 @@ def main():
             shotsData.index.rename( ['pulseId', 'shotNum'], inplace=True )
             shotsData.name = 'GMD'
             
+            
             #Slice shot data and add it to shotsTof
             getSlices = Slicer(config.slicing)
             
             chunks = np.arange(0, dataf[config.hdf.tofTrace].shape[0], config.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
-            for start in chunks:
-                print("processing %s, row %d of %d        \r" % (fname, start, dataf[config.hdf.tofTrace].shape[0] ),end='')
+            for i, start in enumerate(chunks):
+                print("processing %s, chunk %d of %d        " % (fname, i, len(chunks)) , end ='\r')
          
                 shotsTof = getSlices( dataf[config.hdf.tofTrace], pulses, slice(start,start+config.chunkSize) )
+                
+                
+                
                 if shotsTof is not None:
                     fout.put( 'shotsTof', shotsTof, format='t', append = True )
             
-            shotsTof = getSlices( dataf[config.hdf.tofTrace], pulses, slice(dataf[config.hdf.tofTrace].shape[0],None) )
-            if shotsTof is not None:
-                fout.put( 'shotsTof', shotsTof, format='t', append = True )
-
             #Write out the other DF
             shotsData = shotsData[ shotsData.index.get_level_values('pulseId') != 0 ] #purge invalid marcobunch id
             pulses    = pulses   [ pulses.index != 0 ] 
