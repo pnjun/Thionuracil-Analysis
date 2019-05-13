@@ -38,7 +38,9 @@ config = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'skipNum'  : 300,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
-           'output'   : { 'fname' : 'compressed.h5',       
+           'output'   : { 
+                          'folder' : '/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
+                          'fname'  : 'compressed.h5',       
                         },           
                                               
            'chunkSize': 50 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
@@ -89,7 +91,7 @@ class Slicer:
         return 0.5 * m_over_e * ( s / ( tof ) )**2
         
 def main():
-    fout = pd.HDFStore(config.output.fname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
+    fout = pd.HDFStore(config.output.folder + config.output.fname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
     
     for fname in config.data.files:
         with h5py.File( config.data.path + fname ) as dataf:
