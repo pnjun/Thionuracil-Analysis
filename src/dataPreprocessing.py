@@ -19,10 +19,14 @@ import numpy as np
 from contextlib import suppress
 from attrdict import AttrDict
 
-#Configuration parameters:
-config = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
+#cfguration parameters:
+cfg = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
                           'files'    : [ 'FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
+           'output'   : { 
+                          'folder' : '',#'/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
+                          'fname'  : 'compressed.h5',       
+                        },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
                           'delay'      : '/FL2/Experiment/Pump probe laser/laser delay readback',
@@ -39,17 +43,19 @@ config = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'skipNum'  : 300,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
-           'output'   : { 
-                          'folder' : '/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
-                          'fname'  : 'compressed.h5',       
-                        },           
-                                              
-           'chunkSize': 51 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'laserSl'  : { 'offset'   : 0,        #Same as above but for 100MHz laser trace slicing
+                          'period'   : 498.4835,    
+                          'window'   : 498 ,       
+                          'skipNum'  : 0,         
+                          'shotsNum' : 50,          
+                        },
+                                                   
+           'chunkSize': 70 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
-config = AttrDict(config)
+cfg = AttrDict(cfg)
 
 class Slicer:
-    def __init__(self, sliceParams):
+    def __init__(self, sliceParams, eVnames = False):
         ''' 
         Prepares a list of indexes for tof trace slicing
         self.slices is a list of np.ranges, each one corresponding to a slice
@@ -58,6 +64,7 @@ class Slicer:
         self.slices = shotsCuts[:,None] + np.arange(sliceParams.window)
         
         self.skipNum  = sliceParams.skipNum
+        self.eVnames  = eVnames
         self.sampleDT = 0.0005 # Time in us between each sample point (used for ev conversion)
         
     def __call__(self, tofData, pulses, mask = slice(None)):
@@ -69,7 +76,7 @@ class Slicer:
         indexList = []
         for trace, pulseId in zip( tofData[mask], pulses.index[mask] ):
             with suppress(AssertionError):
-                #Some pulses have no macrobunch number => we drop them
+                #Some pulses have no macrobunch number => we drop them (don't waste time on useless data)
                 assert(pulseId != 0)
                 pulseList.append( pd.DataFrame(  trace[self.slices]  ))
                 indexList.append( pulseId )
@@ -78,7 +85,10 @@ class Slicer:
         try:
             shots = pd.concat(pulseList, keys=indexList)
             shots.index.rename( ['pulseId', 'shotNum'], inplace=True )
-            shots.columns = self.Tof2eV( ( shots.columns + self.skipNum ) * self.sampleDT ) 
+            
+            #Name columns as tof to eV conversion
+            if self.eVnames: shots.columns = self.Tof2eV( ( shots.columns + self.skipNum ) * self.sampleDT ) 
+            
             return shots
         except ValueError:
             return None
@@ -92,44 +102,60 @@ class Slicer:
         return 0.5 * m_over_e * ( s / ( tof ) )**2
         
 def main():
-    fout = pd.HDFStore(config.output.folder + config.output.fname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
+    fout = pd.HDFStore(cfg.output.folder + cfg.output.fname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
     
-    for fname in config.data.files:
-        with h5py.File( config.data.path + fname ) as dataf:
+    for fname in cfg.data.files:
+        with h5py.File( cfg.data.path + fname ) as dataf:
             #Dataframe for macrobunch info
-            pulses = pd.DataFrame( { 'pulseId'     : dataf[config.hdf.times][:, 2].astype('int64'), #using int64 instead of uint64 since the latter is not always supported by pytables
-                                     'time'        : dataf[config.hdf.times][:, 0],
-                                     'undulatorEV' : 1239.84193 / dataf[config.hdf.undulSetWL][:, 0], #nanometers to eV
-                                     'opisEV'      : dataf[config.hdf.opisEV][:, 0],
-                                     'delay'       : dataf[config.hdf.delay][:, 0],
-                                     'waveplate'   : dataf[config.hdf.waveplate][:, 0],
-                                     'retarder'    : dataf[config.hdf.retarder][:, 0]
+            pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'), #using int64 instead of uint64 since the latter is not always supported by pytables
+                                     'time'        : dataf[cfg.hdf.times][:, 0],
+                                     'undulatorEV' : 1239.84193 / dataf[cfg.hdf.undulSetWL][:, 0], #nanometers to eV
+                                     'opisEV'      : dataf[cfg.hdf.opisEV][:, 0],
+                                     'delay'       : dataf[cfg.hdf.delay][:, 0],
+                                     'waveplate'   : dataf[cfg.hdf.waveplate][:, 0],
+                                     'retarder'    : dataf[cfg.hdf.retarder][:, 0]
                                    } , columns = [ 'pulseId', 'time', 'undulatorEV', 'opisEV', 'delay', 'waveplate', 'retarder' ]) 
             pulses = pulses.set_index('pulseId')   
             
-            #Dataframe for shot by shot metadata. TOF traces are in shotsTof                       
-            shotsData = pd.DataFrame( dataf[config.hdf.shotGmd], index=pulses.index ).stack()
-            shotsData.index.rename( ['pulseId', 'shotNum'], inplace=True )
-            shotsData.name = 'GMD'
-            
             
             #Slice shot data and add it to shotsTof
-            getSlices = Slicer(config.slicing)
+            tofSlicer = Slicer(cfg.slicing, eVnames = True)
+            laserSlicer = Slicer(cfg.laserSl)
             
-            chunks = np.arange(0, dataf[config.hdf.tofTrace].shape[0], config.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
+            #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
+            #       The removal must be done after the slicing, otherwise slicer will get arrays with non-matching number of macrobunches
+            
+            laserStatusList = []
+            chunks = np.arange(0, dataf[cfg.hdf.tofTrace].shape[0], cfg.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
             for i, start in enumerate(chunks):
                 print("processing %s, chunk %d of %d        " % (fname, i, len(chunks)) , end ='\r')
-         
-                shotsTof = getSlices( dataf[config.hdf.tofTrace], pulses, slice(start,start+config.chunkSize) )
+                sl = slice(start,start+cfg.chunkSize)
                 
+                shotsTof = tofSlicer( dataf[cfg.hdf.tofTrace], pulses, sl )
+                laserTr  = laserSlicer( dataf[cfg.hdf.laserTrace], pulses, sl )
                 
-                
-                if shotsTof is not None:
+                #plot one of the laserShots
+                #import matplotlib.pyplot as plt
+                #laserTr.iloc[40].plot()
+                #plt.show()
+                                 
+                if shotsTof is not None: 
                     fout.put( 'shotsTof', shotsTof, format='t', append = True )
+                    
+                    laserTr = laserTr.sum(axis=1) #integrate laser power
+                    laserStatusList.append(laserTr)
+            print()
             
-            #Write out the other DF
-            shotsData = shotsData[ shotsData.index.get_level_values('pulseId') != 0 ] #purge invalid marcobunch id
-            pulses    = pulses   [ pulses.index != 0 ] 
+            
+            #Dataframe for shot by shot metadata. TOF traces are in shotsTof  
+            #Contains GMD and UV laser power shot by shot   
+            shotsData = pd.DataFrame( dataf[cfg.hdf.shotGmd], index=pulses.index )
+            shotsData = shotsData[shotsData.index != 0].stack(dropna = False).to_frame(name='GMD') #purge invalid IDs, stack shots (creates multindex) and rename column
+            shotsData.index.rename( ['pulseId', 'shotNum'], inplace=True )          
+            shotsData = shotsData.join(pd.concat(laserStatusList).to_frame(name='uvPow'))
+            
+            #Write out the other DF   
+            pulses    = pulses   [ pulses.index != 0 ] #purge invalid marcobunch id            
             fout.put('pulses'   , pulses   , format='t' , data_columns=True, append = True )
             fout.put('shotsData', shotsData, format='t' , data_columns=True, append = True )
         
