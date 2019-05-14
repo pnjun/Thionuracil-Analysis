@@ -20,6 +20,7 @@ laser slicing offset might be off by one shot -> swaps even and odd shots -> we 
 import h5py
 import pandas as pd
 import numpy as np
+import uuid
 import os
 from contextlib import suppress
 from attrdict import AttrDict
@@ -109,7 +110,7 @@ class Slicer:
         return 0.5 * m_over_e * ( s / ( tof ) )**2
         
 def main():
-    outfname = 'temp.h5' if cfg.output.fname == 'AUTO' else cfg.output.fname
+    outfname = uuid.uuid4().hex if cfg.output.fname == 'AUTO' else cfg.output.fname
     
     fout = pd.HDFStore(cfg.output.folder + outfname, "w", complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
     for fname in cfg.data.files:
