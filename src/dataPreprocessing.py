@@ -20,16 +20,17 @@ laser slicing offset might be off by one shot -> swaps even and odd shots -> we 
 import h5py
 import pandas as pd
 import numpy as np
+import os
 from contextlib import suppress
 from attrdict import AttrDict
 
 #cfguration parameters:
-cfg = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : [ 'FLASH2_USER1-2019-03-26T0500.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
+                          'files'    : [ 'FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : { 
                           'folder' : '',#'/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
-                          'fname'  : 'compressed.h5',       
+                          'fname'  : 'AUTO',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -47,9 +48,9 @@ cfg = { 'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/r
                           'skipNum'  : 300,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
-           'laser'    : { 'slicing'  :  { 'offset'   : 850,        #Same as above but for 100MHz laser trace slicing
+           'laser'    : { 'slicing'  :  { 'offset'   : 855,        #Same as above but for 100MHz laser trace slicing
                                           'period'   : 540,    
-                                          'window'   : 38,       
+                                          'window'   : 33,       
                                           'skipNum'  : 0,         
                                           'shotsNum' : 50,          
                                         },
@@ -108,8 +109,9 @@ class Slicer:
         return 0.5 * m_over_e * ( s / ( tof ) )**2
         
 def main():
-    fout = pd.HDFStore(cfg.output.folder + cfg.output.fname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
+    outfname = 'temp.h5' if cfg.output.fname == 'AUTO' else cfg.output.fname
     
+    fout = pd.HDFStore(cfg.output.folder + outfname, "w", complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
     for fname in cfg.data.files:
         with h5py.File( cfg.data.path + fname ) as dataf:
             #Dataframe for macrobunch info
@@ -142,7 +144,8 @@ def main():
                 
                 #plot one of the traces
                 #import matplotlib.pyplot as plt
-                #plt.plot(dataf[cfg.hdf.laserTrace][10000])
+                #plt.plot(laserTr.iloc[400])
+                #plt.plot(laserTr.iloc[440])
                 #plt.show()
                                  
                 if shotsTof is not None: 
@@ -160,7 +163,7 @@ def main():
             shotsData = shotsData[shotsData.index != 0].stack(dropna = False).to_frame(name='GMD') #purge invalid IDs, stack shots (creates multindex) and rename column
             shotsData.index.rename( ['pulseId', 'shotNum'], inplace=True )          
             shotsData = shotsData.join(pd.concat(laserStatusList).to_frame(name='uvPow'))
-            
+
             #Write out the other DF   
             pulses    = pulses   [ pulses.index != 0 ] #purge invalid marcobunch id            
             fout.put('pulses'   , pulses   , format='t' , data_columns=True, append = True )
@@ -168,7 +171,11 @@ def main():
         
         
     fout.close()
-
+    
+    if cfg.output.fname == 'AUTO':
+        newname = "%d-%d.h5" % (pulses.index[0], pulses.index[-1]) 
+        os.rename(cfg.output.folder + outfname, cfg.output.folder + newname  )
+        print("Output renamed to: %s" % newname)
         
 if __name__ == "__main__":
 	main()
