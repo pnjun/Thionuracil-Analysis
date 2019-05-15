@@ -21,17 +21,19 @@ import h5py
 import pandas as pd
 import numpy as np
 import uuid
-import os
 from contextlib import suppress
 from attrdict import AttrDict
 
+#, 
+
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : [ 'FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : [ 'FLASH2_USER1-2019-03-30T1509.h5', 'FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : { 
-                          'folder' : '',#'/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
-                          'fname'  : 'AUTO',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
+                          'folder'      : '',#'/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
+                          'pulsefname'  : 'index.h5',
+                          'shotsfname'  : 'AUTO',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -110,10 +112,12 @@ class Slicer:
         return 0.5 * m_over_e * ( s / ( tof ) )**2
         
 def main():
-    outfname = uuid.uuid4().hex if cfg.output.fname == 'AUTO' else cfg.output.fname
+    outfname = uuid.uuid4().hex + '.temp' if cfg.output.shotsfname == 'AUTO' else cfg.output.shotsfname
     
-    fout = pd.HDFStore(cfg.output.folder + outfname, "w", complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
+    shotsfout = pd.HDFStore(cfg.output.folder + outfname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
+    pulsefout = pd.HDFStore(cfg.output.folder + cfg.output.pulsefname, complevel=6)
     for fname in cfg.data.files:
+        print("Opening %s" % fname)
         with h5py.File( cfg.data.path + fname ) as dataf:
             #Dataframe for macrobunch info
             pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'), #using int64 instead of uint64 since the latter is not always supported by pytables
@@ -126,7 +130,6 @@ def main():
                                    } , columns = [ 'pulseId', 'time', 'undulatorEV', 'opisEV', 'delay', 'waveplate', 'retarder' ]) 
             pulses = pulses.set_index('pulseId')   
             
-            
             #Slice shot data and add it to shotsTof
             tofSlicer = Slicer(cfg.slicing, eVnames = True)
             laserSlicer = Slicer(cfg.laser.slicing)
@@ -137,7 +140,7 @@ def main():
             laserStatusList = []
             chunks = np.arange(0, dataf[cfg.hdf.tofTrace].shape[0], cfg.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
             for i, start in enumerate(chunks):
-                print("processing %s, chunk %d of %d        " % (fname, i, len(chunks)) , end ='\r')
+                print("chunk %d of %d        " % (i+1, len(chunks)) , end ='\r')
                 sl = slice(start,start+cfg.chunkSize)
                 
                 shotsTof = tofSlicer( dataf[cfg.hdf.tofTrace], pulses, sl )
@@ -150,7 +153,7 @@ def main():
                 #plt.show()
                                  
                 if shotsTof is not None: 
-                    fout.put( 'shotsTof', shotsTof, format='t', append = True )
+                    shotsfout.put( 'shotsTof', shotsTof, format='t', append = True )
                     
                     laserTr -= cfg.laser.bgLvl
                     laserTr = laserTr.sum(axis=1)  #integrate laser power
@@ -161,19 +164,29 @@ def main():
             #Dataframe for shot by shot metadata. TOF traces are in shotsTof  
             #Contains GMD and UV laser power shot by shot   
             shotsData = pd.DataFrame( dataf[cfg.hdf.shotGmd], index=pulses.index )
-            shotsData = shotsData[shotsData.index != 0].stack(dropna = False).to_frame(name='GMD') #purge invalid IDs, stack shots (creates multindex) and rename column
+            #purge invalid IDs, stack shots (creates multindex) and rename column
+            shotsData = shotsData[shotsData.index != 0].stack(dropna = False).to_frame(name='GMD') 
             shotsData.index.rename( ['pulseId', 'shotNum'], inplace=True )          
             shotsData = shotsData.join(pd.concat(laserStatusList).to_frame(name='uvPow'))
 
-            #Write out the other DF   
-            pulses    = pulses   [ pulses.index != 0 ] #purge invalid marcobunch id            
-            fout.put('pulses'   , pulses   , format='t' , data_columns=True, append = True )
-            fout.put('shotsData', shotsData, format='t' , data_columns=True, append = True )
-        
-        
-    fout.close()
+            #Write out the DFs   
+ 
+            #purge invalid marcobunch id 
+            pulses    = pulses   [ pulses.index != 0 ] 
+            #Remove pulses that have already been processed to avoid inserting duplicates
+            try:
+                pulses = pulses.drop( pulsefout['pulses'].index, errors='ignore' )
+            except KeyError:
+                pass
+                
+            pulsefout.append('pulses'   , pulses   , format='t' , data_columns=True, append = True )           
+            shotsfout.append('shotsData', shotsData, format='t' , data_columns=True, append = True )
+
+    shotsfout.close()
+    pulsefout.close()
     
-    if cfg.output.fname == 'AUTO':
+    if cfg.output.shotsfname == 'AUTO' and len(pulses):
+        import os
         newname = "%d-%d.h5" % (pulses.index[0], pulses.index[-1]) 
         os.rename(cfg.output.folder + outfname, cfg.output.folder + newname  )
         print("Output renamed to: %s" % newname)
