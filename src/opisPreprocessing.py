@@ -21,20 +21,26 @@ from attrdict import AttrDict
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : [ 'FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : [ 'FLASH2_USER1-2019-03-30T2100.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : { 
                           'folder' : '',#'/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
                           'fname'  : 'AUTO',  # use 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
-           'hdf'      : { 'opisTrace'  : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
-                          'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
+           'hdf'      : { 'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
+                          'opisTr2'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
+                          'opisTr3'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH02',
+                          'opisTr4'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH03',
+                          'ret1'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF1 voltages/Ret nominal set',
+                          'ret2'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF2 voltages/Ret nominal set',
+                          'ret3'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF3 voltages/Ret nominal set',
+                          'ret4'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
                           'times'      : '/Timing/time stamp/fl2user1',
                         },                
-           'slicing'  : { 'offset'   : 22000,       #Offset of first slice in samples (time zero)
-                          'period'   : 9969.67,     #Rep period of FEL in samples
-                          'window'   : 2700 ,       #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 300,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
+           'slicing'  : { 'offset'   : 000,       #Offset of first slice in samples (time zero)
+                          'period'   : 3512,     #Rep period of FEL in samples
+                          'window'   : 3512,       #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 0,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
                                                                           
@@ -45,7 +51,7 @@ cfg = AttrDict(cfg)
 
         
 def main():
-    outfname = uuid.uuid4().hex if cfg.output.fname == 'AUTO' else cfg.output.fname
+    outfname = uuid.uuid4().hex + ".temp" if cfg.output.fname == 'AUTO' else cfg.output.fname
     
     fout = pd.HDFStore(cfg.output.folder + outfname, "w", complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
     for fname in cfg.data.files:
@@ -53,28 +59,29 @@ def main():
             #Dataframe for macrobunch info
             pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'), #using int64 instead of uint64 since the latter is not always supported by pytables
                                      'time'        : dataf[cfg.hdf.times][:, 0],
-                                     'retarder'    : dataf[cfg.hdf.retarder][:, 0]
-                                   } , columns = [ 'pulseId', 'time', 'retarder' ]) 
+                                   } , columns = [ 'pulseId', 'time' ]) 
             pulses = pulses.set_index('pulseId')   
             
             
             #Slice shot data and add it to shotsTof
-            opisSlicer = Slicer(cfg.slicing, eVnames = True)
-            
+            opisSlicer = Slicer(cfg.slicing, eVnames = False)
+                    
             #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
             #       The removal must be done after the slicing, otherwise slicer will get arrays with non-matching number of macrobunches
-            chunks = np.arange(0, dataf[cfg.hdf.opisTrace].shape[0], cfg.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
+            chunks = np.arange(0, dataf[cfg.hdf.opisTr1].shape[0], cfg.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
             for i, start in enumerate(chunks):
                 print("processing %s, chunk %d of %d        " % (fname, i, len(chunks)) , end ='\r')
                 sl = slice(start,start+cfg.chunkSize)
                 
-                shotsTof = opisSlicer( dataf[cfg.hdf.opisTrace], pulses, sl )
+                shotsTof = opisSlicer( dataf[cfg.hdf.opisTr1], pulses, sl )
                 
                 #plot one of the traces
-                #import matplotlib.pyplot as plt
-                #plt.plot(laserTr.iloc[400])
-                #plt.plot(laserTr.iloc[440])
-                #plt.show()
+                import matplotlib.pyplot as plt
+                plt.plot(shotsTof.iloc[10])
+                plt.plot(shotsTof.iloc[20])
+                plt.plot(shotsTof.iloc[30])
+                plt.plot(shotsTof.iloc[40])                
+                plt.show()
                                  
                 if shotsTof is not None: 
                     fout.put( 'opisShots', shotsTof, format='t', append = True )
