@@ -37,10 +37,10 @@ cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'ret4'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
                           'times'      : '/Timing/time stamp/fl2user1',
                         },                
-           'slicing'  : { 'offset'   : 000,       #Offset of first slice in samples (time zero)
-                          'period'   : 3512,     #Rep period of FEL in samples
-                          'window'   : 3512,       #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 0,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
+           'slicing'  : { 'offset'   : 0,        #Offset of first slice in samples (time zero)
+                          'period'   : 3500,     #Rep period of FEL in samples
+                          'window'   : 2000,       #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 550,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
                                                                           
@@ -64,7 +64,7 @@ def main():
             
             
             #Slice shot data and add it to shotsTof
-            opisSlicer = Slicer(cfg.slicing, eVnames = False)
+            opisSlicer = Slicer(cfg.slicing, tof2ev_dt = 0.0014)
                     
             #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
             #       The removal must be done after the slicing, otherwise slicer will get arrays with non-matching number of macrobunches
@@ -73,14 +73,17 @@ def main():
                 print("processing %s, chunk %d of %d        " % (fname, i, len(chunks)) , end ='\r')
                 sl = slice(start,start+cfg.chunkSize)
                 
-                shotsTof = opisSlicer( dataf[cfg.hdf.opisTr1], pulses, sl )
+                shots1 = opisSlicer( dataf[cfg.hdf.opisTr1], pulses, sl )
+                shots2 = opisSlicer( dataf[cfg.hdf.opisTr2], pulses, sl )
+                shots3 = opisSlicer( dataf[cfg.hdf.opisTr3], pulses, sl )
+                shots4 = opisSlicer( dataf[cfg.hdf.opisTr4], pulses, sl )
                 
                 #plot one of the traces
                 import matplotlib.pyplot as plt
-                plt.plot(shotsTof.iloc[10])
-                plt.plot(shotsTof.iloc[20])
-                plt.plot(shotsTof.iloc[30])
-                plt.plot(shotsTof.iloc[40])                
+                shots1.mean(axis=0).plot()
+                shots2.mean(axis=0).plot()
+                shots3.mean(axis=0).plot()
+                shots4.mean(axis=0).plot()
                 plt.show()
                                  
                 if shotsTof is not None: 

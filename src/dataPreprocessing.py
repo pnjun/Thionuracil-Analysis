@@ -65,7 +65,7 @@ cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
 cfg = AttrDict(cfg)
 
 class Slicer:
-    def __init__(self, sliceParams, eVnames = False):
+    def __init__(self, sliceParams, tof2ev_dt = None):
         ''' 
         Prepares a list of indexes for tof trace slicing
         self.slices is a list of np.ranges, each one corresponding to a slice
@@ -74,8 +74,7 @@ class Slicer:
         self.slices = shotsCuts[:,None] + np.arange(sliceParams.window)
         
         self.skipNum  = sliceParams.skipNum
-        self.eVnames  = eVnames
-        self.sampleDT = 0.0005 # Time in us between each sample point (used for ev conversion)
+        self.sampleDT = tof2ev_dt # Time in us between each sample point (used for ev conversion, if None no ev conversion is done)
         
     def __call__(self, tofData, pulses, mask = slice(None)):
         '''
@@ -97,7 +96,7 @@ class Slicer:
             shots.index.rename( ['pulseId', 'shotNum'], inplace=True )
             
             #Name columns as tof to eV conversion
-            if self.eVnames: shots.columns = self.Tof2eV( ( shots.columns + self.skipNum ) * self.sampleDT ) 
+            if self.sampleDT: shots.columns = self.Tof2eV( ( shots.columns + self.skipNum ) * self.sampleDT ) 
             
             return shots
         except ValueError:
@@ -131,7 +130,7 @@ def main():
             pulses = pulses.set_index('pulseId')   
             
             #Slice shot data and add it to shotsTof
-            tofSlicer = Slicer(cfg.slicing, eVnames = True)
+            tofSlicer = Slicer(cfg.slicing, tof2ev_dt = 0.0005)
             laserSlicer = Slicer(cfg.laser.slicing)
             
             #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
