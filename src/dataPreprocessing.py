@@ -23,6 +23,7 @@ import pandas as pd
 import numpy as np
 import uuid
 import os, glob
+from time import time
 from contextlib import suppress
 from attrdict import AttrDict
 
@@ -65,7 +66,7 @@ cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'bgLvl'    : 32720       # Value for bg correction of Laser trace 
                         },
                                                    
-           'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'chunkSize': 100 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 cfg = AttrDict(cfg)
 
@@ -147,10 +148,14 @@ def main():
             
             laserStatusList = []
             chunks = np.arange(0, dataf[cfg.hdf.tofTrace].shape[0], cfg.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
+
+            endtime = 0
             for i, start in enumerate(chunks):
-                print("chunk %d of %d        " % (i+1, len(chunks)) , end ='\r')
-                sl = slice(start,start+cfg.chunkSize)
+                starttime = endtime
+                endtime = time()
+                print("chunk %d of %d (%.1f bunches/sec )        " % (i+1, len(chunks), cfg.chunkSize / (endtime-starttime) ) , end ='\r')
                 
+                sl = slice(start,start+cfg.chunkSize)
                 shotsTof = tofSlicer( dataf[cfg.hdf.tofTrace], pulses, sl )
                 laserTr  = laserSlicer( dataf[cfg.hdf.laserTrace], pulses, sl )
                 
