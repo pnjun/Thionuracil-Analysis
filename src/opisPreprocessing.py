@@ -1,3 +1,4 @@
+#!/bin/python3.4
 '''
 Simlar to dataPreprocessing but for OPIS data. Slices OPIS data.
 
@@ -39,12 +40,14 @@ cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                         },                
            'slicing'  : { 'offset'   : 0,        #Offset of first slice in samples (time zero)
                           'period'   : 3500,     #Rep period of FEL in samples
-                          'window'   : 2000,       #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 550,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
-                          'shotsNum' : 50,          #Number of shots per macrobunch
+                          'window'   : 2000,     #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 550,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
+                          'shotsNum' : 50,       #Number of shots per macrobunch
                         },
-                                                                          
-           'chunkSize': 70 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'tof2ev'   : { 'len'      : 2,        #lenght of flight tube in meters
+                          'dt'       : 0.0014    #interval between tof samples in s
+                        },                                                                          
+           'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 cfg = AttrDict(cfg)
 
@@ -64,7 +67,7 @@ def main():
             
             
             #Slice shot data and add it to shotsTof
-            opisSlicer = Slicer(cfg.slicing, tof2ev_dt = 0.0014)
+            opisSlicer = Slicer(cfg.slicing, tof2ev = cfg.tof2ev)
                     
             #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
             #       The removal must be done after the slicing, otherwise slicer will get arrays with non-matching number of macrobunches
@@ -77,13 +80,13 @@ def main():
                 shots2 = opisSlicer( dataf[cfg.hdf.opisTr2], pulses, sl )
                 shots3 = opisSlicer( dataf[cfg.hdf.opisTr3], pulses, sl )
                 shots4 = opisSlicer( dataf[cfg.hdf.opisTr4], pulses, sl )
-                
+
                 #plot one of the traces
                 import matplotlib.pyplot as plt
-                shots1.mean(axis=0).plot()
-                shots2.mean(axis=0).plot()
-                shots3.mean(axis=0).plot()
-                shots4.mean(axis=0).plot()
+                shots1.loc[[75634529]].mean(axis=0).plot()
+                #shots2.loc[[75634529]].mean(axis=0).plot()
+                #shots3.loc[[75634529]].mean(axis=0).plot()
+                #shots4.loc[[75634529]].mean(axis=0).plot()
                 plt.show()
                                  
                 if shotsTof is not None: 

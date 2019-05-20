@@ -1,3 +1,4 @@
+#!/bin/python3.4
 '''
 This script reads data from the hdf5 files provided by flash and compresses 
 and reorganizes the data structure. Each macrobunch is split up shot by shot. 
@@ -21,6 +22,7 @@ import h5py
 import pandas as pd
 import numpy as np
 import uuid
+import os, glob
 from contextlib import suppress
 from attrdict import AttrDict
 
@@ -28,10 +30,10 @@ from attrdict import AttrDict
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : [ 'FLASH2_USER1-2019-03-30T1509.h5', 'FLASH2_USER1-2019-03-25T1548.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : 'FLASH2_USER1-2019-03-2*'  # List of files to process or globbable string. All files must have the same number of shots per macrobunch
                         },
            'output'   : { 
-                          'folder'      : '',#'/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
+                          'folder'      : '/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
                           'pulsefname'  : 'index.h5',
                           'shotsfname'  : 'AUTO',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
@@ -51,6 +53,9 @@ cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'skipNum'  : 300,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
+           'tof2ev'   : { 'len'      : 2,           #lenght of flight tube in meters
+                          'dt'       : 0.0005       #interval between tof samples in s
+                        },
            'laser'    : { 'slicing'  :  { 'offset'   : 855,        #Same as above but for 100MHz laser trace slicing
                                           'period'   : 540,    
                                           'window'   : 33,       
@@ -60,12 +65,12 @@ cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'bgLvl'    : 32720       # Value for bg correction of Laser trace 
                         },
                                                    
-           'chunkSize': 70 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 cfg = AttrDict(cfg)
 
 class Slicer:
-    def __init__(self, sliceParams, tof2ev_dt = None):
+    def __init__(self, sliceParams, tof2ev = None):
         ''' 
         Prepares a list of indexes for tof trace slicing
         self.slices is a list of np.ranges, each one corresponding to a slice
@@ -74,7 +79,7 @@ class Slicer:
         self.slices = shotsCuts[:,None] + np.arange(sliceParams.window)
         
         self.skipNum  = sliceParams.skipNum
-        self.sampleDT = tof2ev_dt # Time in us between each sample point (used for ev conversion, if None no ev conversion is done)
+        self.tof2ev = tof2ev # Time in us between each sample point (used for ev conversion, if None no ev conversion is done)
         
     def __call__(self, tofData, pulses, mask = slice(None)):
         '''
@@ -96,7 +101,7 @@ class Slicer:
             shots.index.rename( ['pulseId', 'shotNum'], inplace=True )
             
             #Name columns as tof to eV conversion
-            if self.sampleDT: shots.columns = self.Tof2eV( ( shots.columns + self.skipNum ) * self.sampleDT ) 
+            if self.tof2ev: shots.columns = self.Tof2eV( ( shots.columns + self.skipNum ) ) 
             
             return shots
         except ValueError:
@@ -105,7 +110,8 @@ class Slicer:
     def Tof2eV(self, tof):
         ''' converts time of flight into ectronvolts '''
         # Constants for conversion:
-        s = 1.7
+        tof *= self.tof2ev.dt
+        s = self.tof2ev.len
         m_over_e = 5.69
         # UNITS AND ORDERS OF MAGNITUDE DO CHECK OUT    
         return 0.5 * m_over_e * ( s / ( tof ) )**2
@@ -115,9 +121,12 @@ def main():
     
     shotsfout = pd.HDFStore(cfg.output.folder + outfname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
     pulsefout = pd.HDFStore(cfg.output.folder + cfg.output.pulsefname, complevel=6)
-    for fname in cfg.data.files:
+    
+    flist = cfg.data.path + cfg.data.files if isinstance(cfg.data.files, list) else glob.glob(cfg.data.path + cfg.data.files)
+    print("processing %d files" % len(flist))
+    for fname in flist:
         print("Opening %s" % fname)
-        with h5py.File( cfg.data.path + fname ) as dataf:
+        with h5py.File( fname ) as dataf:
             #Dataframe for macrobunch info
             pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'), #using int64 instead of uint64 since the latter is not always supported by pytables
                                      'time'        : dataf[cfg.hdf.times][:, 0],
@@ -130,7 +139,7 @@ def main():
             pulses = pulses.set_index('pulseId')   
             
             #Slice shot data and add it to shotsTof
-            tofSlicer = Slicer(cfg.slicing, tof2ev_dt = 0.0005)
+            tofSlicer = Slicer(cfg.slicing, tof2ev = cfg.tof2ev)
             laserSlicer = Slicer(cfg.laser.slicing)
             
             #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
@@ -148,7 +157,7 @@ def main():
                 #plot one of the traces
                 #import matplotlib.pyplot as plt
                 #plt.plot(laserTr.iloc[400])
-                #plt.plot(laserTr.iloc[440])
+                #plt.plot(laserTr.iloc[441])
                 #plt.show()
                                  
                 if shotsTof is not None: 
@@ -185,7 +194,6 @@ def main():
     pulsefout.close()
     
     if cfg.output.shotsfname == 'AUTO' and len(pulses):
-        import os
         newname = "%d-%d.h5" % (pulses.index[0], pulses.index[-1]) 
         os.rename(cfg.output.folder + outfname, cfg.output.folder + newname  )
         print("Output renamed to: %s" % newname)
