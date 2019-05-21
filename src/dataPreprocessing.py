@@ -27,16 +27,14 @@ from time import time
 from contextlib import suppress
 from attrdict import AttrDict
 
-#, 
-
 #cfguration parameters:
-cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : 'FLASH2_USER1-2019-03-2*'  # List of files to process or globbable string. All files must have the same number of shots per macrobunch
+cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',     
+                          'files'    : 'FLASH2_USER1-2019-03-2*.h5' # List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : { 
-                          'folder'      : '/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
+                          'folder'      : '/media/Data/Beamtime/processed/',
                           'pulsefname'  : 'index.h5',
-                          'shotsfname'  : 'AUTO',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
+                          'shotsfname'  : 'first block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -66,7 +64,7 @@ cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'bgLvl'    : 32720       # Value for bg correction of Laser trace 
                         },
                                                    
-           'chunkSize': 100 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 cfg = AttrDict(cfg)
 
@@ -120,10 +118,10 @@ class Slicer:
 def main():
     outfname = uuid.uuid4().hex + '.temp' if cfg.output.shotsfname == 'AUTO' else cfg.output.shotsfname
     
-    shotsfout = pd.HDFStore(cfg.output.folder + outfname, complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
-    pulsefout = pd.HDFStore(cfg.output.folder + cfg.output.pulsefname, complevel=6)
+    shotsfout = pd.HDFStore(cfg.output.folder + outfname)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
+    pulsefout = pd.HDFStore(cfg.output.folder + cfg.output.pulsefname)
     
-    flist = cfg.data.path + cfg.data.files if isinstance(cfg.data.files, list) else glob.glob(cfg.data.path + cfg.data.files)
+    flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
     print("processing %d files" % len(flist))
     for fname in flist:
         print("Opening %s" % fname)
