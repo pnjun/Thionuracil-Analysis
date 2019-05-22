@@ -1,4 +1,4 @@
-#!/bin/python3.4
+#!/usr/bin/python3
 '''
 This script reads data from the hdf5 files provided by flash and compresses 
 and reorganizes the data structure. Each macrobunch is split up shot by shot. 
@@ -29,12 +29,12 @@ from attrdict import AttrDict
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',     
-                          'files'    : 'FLASH2_USER1-2019-03-2*.h5' # List of files to process or globbable string. All files must have the same number of shots
+                          'files'    : 'FLASH2_USER1-2019-03-2*.h5', #['FLASH2_USER1-2019-03-25T1523.h5']#'FLASH2_USER1-2019-0?-[^2][^456]*.h5' # List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : { 
                           'folder'      : '/media/Data/Beamtime/processed/',
                           'pulsefname'  : 'index.h5',
-                          'shotsfname'  : 'first block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
+                          'shotsfname'  : 'first_block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -46,14 +46,14 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
                           'shotGmd'    : '/FL2/Photon Diagnostic/GMD/Pulse resolved energy/energy hall',
                           'laserTrace' : '/FL2/Experiment/MTCA-EXP1/SIS8300 100MHz ADC/CH4/TD'
                         },                
-           'slicing'  : { 'offset'   : 22000,       #Offset of first slice in samples (time zero)
+           'slicing'  : { 'offset'   : 21732,       #Offset of first slice in samples (time zero)
                           'period'   : 9969.67,     #Rep period of FEL in samples
-                          'window'   : 2700 ,       #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 300,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
+                          'window'   : 3000 ,       #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
-           'tof2ev'   : { 'len'      : 2,           #lenght of flight tube in meters
-                          'dt'       : 0.0005       #interval between tof samples in s
+           'tof2ev'   : { 'len'      : 1.7088,           #lenght of flight tube in meters
+                          'dt'       : 0.0005       #interval between tof samples in us
                         },
            'laser'    : { 'slicing'  :  { 'offset'   : 855,        #Same as above but for 100MHz laser trace slicing
                                           'period'   : 540,    
@@ -75,8 +75,9 @@ class Slicer:
         self.slices is a list of np.ranges, each one corresponding to a slice
         '''
         shotsCuts = (sliceParams.offset + sliceParams.skipNum + ( sliceParams.period * np.arange(sliceParams.shotsNum) )).astype(int)
+ 
         self.slices = shotsCuts[:,None] + np.arange(sliceParams.window)
-        
+
         self.skipNum  = sliceParams.skipNum
         self.tof2ev = tof2ev # Time in us between each sample point (used for ev conversion, if None no ev conversion is done)
         
