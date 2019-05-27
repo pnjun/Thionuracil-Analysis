@@ -4,15 +4,11 @@ This script reads data from the hdf5 files provided by flash and compresses
 and reorganizes the data structure. Each macrobunch is split up shot by shot. 
 TOF and OPIS traces are saved by shot togeter with shot data (GMD, UVON), 
 with additional datatables for macrobunch params (timestam, pressure, delay, etc..)
-
 In the code macrobunch are 'pulses' and shots are 'shots'
-
 Requires: - pandas
           - h5py
           - attrdict
-
 For info contact Fabiano
-
 **** NOTES ****
 tof slicing offset might be slightly off -> eV conversion is wrong -> we need to check this
 laser slicing offset might be off by one shot -> swaps even and odd shots -> we need to check this
@@ -29,12 +25,12 @@ from attrdict import AttrDict
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',     
-                          'files'    : 'FLASH2_USER1-2019-03-2*.h5', #['FLASH2_USER1-2019-03-25T1523.h5']#'FLASH2_USER1-2019-0?-[^2][^456]*.h5' # List of files to process or globbable string. All files must have the same number of shots
+                          'files'    : 'FLASH2_USER1-2019-03-2*.h5', #['FLASH2_USER1-2019-03-27T0630.h5'] 'FLASH2_USER1-2019-0?-[^2][^456]*.h5' # List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : { 
                           'folder'      : '/media/Data/Beamtime/processed/',
-                          'pulsefname'  : 'index.h5',
-                          'shotsfname'  : 'first_block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
+                          'pulsefname'  : 'index_uvbg.h5',
+                          'shotsfname'  : 'first block_uvbg.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -52,16 +48,15 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
                           'skipNum'  : 350,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons
                           'shotsNum' : 50,          #Number of shots per macrobunch
                         },
-           'tof2ev'   : { 'len'      : 1.7088,           #lenght of flight tube in meters
+           'tof2ev'   : { 'len'      : 1.7088,      #lenght of flight tube in meters
                           'dt'       : 0.0005       #interval between tof samples in us
                         },
            'laser'    : { 'slicing'  :  { 'offset'   : 855,        #Same as above but for 100MHz laser trace slicing
                                           'period'   : 540,    
-                                          'window'   : 33,       
+                                          'window'   : 30,       
                                           'skipNum'  : 0,         
                                           'shotsNum' : 50,          
                                         },
-                          'bgLvl'    : 32720       # Value for bg correction of Laser trace 
                         },
                                                    
            'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
@@ -69,7 +64,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
 cfg = AttrDict(cfg)
 
 class Slicer:
-    def __init__(self, sliceParams, tof2ev = None):
+    def __init__(self, sliceParams, tof2ev = None, removeBg = False):
         ''' 
         Prepares a list of indexes for tof trace slicing
         self.slices is a list of np.ranges, each one corresponding to a slice
@@ -77,22 +72,24 @@ class Slicer:
         shotsCuts = (sliceParams.offset + sliceParams.skipNum + ( sliceParams.period * np.arange(sliceParams.shotsNum) )).astype(int)
  
         self.slices = shotsCuts[:,None] + np.arange(sliceParams.window)
-
+        
+        self.removeBg = removeBg
         self.skipNum  = sliceParams.skipNum
         self.tof2ev = tof2ev # Time in us between each sample point (used for ev conversion, if None no ev conversion is done)
         
-    def __call__(self, tofData, pulses, mask = slice(None)):
+    def __call__(self, tofData, pulses):
         '''
         Slices tofData and returns a dataframe of shots. Each shot is indexed by macrobunch and shotnumber
-        mask is a slice object indicating which subset of the data to operate on.
         '''
         pulseList = []
         indexList = []
-        for trace, pulseId in zip( tofData[mask], pulses.index[mask] ):
+        for trace, pulseId in zip( tofData, pulses.index ):
+            bkg = np.mean(trace) if self.removeBg else 0
+               
             with suppress(AssertionError):
                 #Some pulses have no macrobunch number => we drop them (don't waste time on useless data)
                 assert(pulseId != 0)
-                pulseList.append( pd.DataFrame(  trace[self.slices]  ))
+                pulseList.append( pd.DataFrame(  trace[self.slices] - bkg ))
                 indexList.append( pulseId )
                 
         #Create multindexed series. Top level index is macrobunch number, sub index is shot num.
@@ -119,7 +116,7 @@ class Slicer:
 def main():
     outfname = uuid.uuid4().hex + '.temp' if cfg.output.shotsfname == 'AUTO' else cfg.output.shotsfname
     
-    shotsfout = pd.HDFStore(cfg.output.folder + outfname)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
+    shotsfout = pd.HDFStore(cfg.output.folder + outfname)  # complevel btw 0 and 10
     pulsefout = pd.HDFStore(cfg.output.folder + cfg.output.pulsefname)
     
     flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
@@ -140,14 +137,24 @@ def main():
             
             #Slice shot data and add it to shotsTof
             tofSlicer = Slicer(cfg.slicing, tof2ev = cfg.tof2ev)
-            laserSlicer = Slicer(cfg.laser.slicing)
+            laserSlicer = Slicer(cfg.laser.slicing, removeBg=True)
             
-            #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
-            #       The removal must be done after the slicing, otherwise slicer will get arrays with non-matching number of macrobunches
+            #NOTE : Slicer will drop all traces with macrobunch id = 0.
+            # We will need to remove them from the other dataframes as well.
+            # The removal must be done after the slicing, otherwise slicer will get arrays with 
+            # non-matching number of macrobunches
             
             laserStatusList = []
-            chunks = np.arange(0, dataf[cfg.hdf.tofTrace].shape[0], cfg.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
-
+            #We do stuff in cuncks to avoid loading too much data in memory at once
+            chunks = np.arange(0, dataf[cfg.hdf.tofTrace].shape[0], cfg.chunkSize) 
+            
+            #Load index of data already written to file
+            #We check against this to avoid writing duplicates
+            try:
+                prevIdx = shotsfout['shotsData'].index
+            except (KeyError):
+                prevIdx = []
+                
             endtime = 0
             for i, start in enumerate(chunks):
                 starttime = endtime
@@ -155,19 +162,23 @@ def main():
                 print("chunk %d of %d (%.1f bunches/sec )        " % (i+1, len(chunks), cfg.chunkSize / (endtime-starttime) ) , end ='\r')
                 
                 sl = slice(start,start+cfg.chunkSize)
-                shotsTof = tofSlicer( dataf[cfg.hdf.tofTrace], pulses, sl )
-                laserTr  = laserSlicer( dataf[cfg.hdf.laserTrace], pulses, sl )
+                shotsTof = tofSlicer( dataf[cfg.hdf.tofTrace][sl], pulses[sl])
+                laserTr  = laserSlicer( dataf[cfg.hdf.laserTrace][sl], pulses[sl])
                 
                 #plot one of the traces
                 #import matplotlib.pyplot as plt
-                #plt.plot(laserTr.iloc[400])
-                #plt.plot(laserTr.iloc[441])
+                #plt.plot(laserTr.iloc[500])
+                #plt.plot(laserTr.iloc[501])
                 #plt.show()
+                
+                #Some raw files have overlap. If this is the case, drop bunches we already processed.
+                #shotsTof = shotsTof.drop( prevIdx, errors='ignore')     
                                  
-                if shotsTof is not None: 
+                if shotsTof is not None:               
+                    #Write down tof data
                     shotsfout.put( 'shotsTof', shotsTof, format='t', append = True )
                     
-                    laserTr -= cfg.laser.bgLvl
+                    #Keep laser data for later, we bundle it with GMD before writing it out
                     laserTr = laserTr.sum(axis=1)  #integrate laser power
                     laserStatusList.append(laserTr)
             print()
@@ -190,7 +201,10 @@ def main():
                 pulses = pulses.drop( pulsefout['pulses'].index, errors='ignore' )
             except KeyError:
                 pass
-                
+            try:
+                shotsData = shotsData.drop( shotsfout['shotsData'].index, errors='ignore')
+            except KeyError:
+                pass                       
             pulsefout.append('pulses'   , pulses   , format='t' , data_columns=True, append = True )           
             shotsfout.append('shotsData', shotsData, format='t' , data_columns=True, append = True )
 
