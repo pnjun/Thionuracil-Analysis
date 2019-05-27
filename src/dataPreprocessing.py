@@ -30,7 +30,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
            'output'   : { 
                           'folder'      : '/media/Data/Beamtime/processed/',
                           'pulsefname'  : 'index_uvbg.h5',
-                          'shotsfname'  : 'first block_uvbg.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
+                          'shotsfname'  : 'first_block_uvbg.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -170,11 +170,11 @@ def main():
                 #plt.plot(laserTr.iloc[500])
                 #plt.plot(laserTr.iloc[501])
                 #plt.show()
-                
-                #Some raw files have overlap. If this is the case, drop bunches we already processed.
-                #shotsTof = shotsTof.drop( prevIdx, errors='ignore')     
-                                 
-                if shotsTof is not None:               
+                                
+                if shotsTof is not None:      
+                    #Some raw files have overlap. If this is the case, drop bunches we already processed.
+                    shotsTof = shotsTof.query('index not in @prevIdx')           
+                    
                     #Write down tof data
                     shotsfout.put( 'shotsTof', shotsTof, format='t', append = True )
                     
@@ -198,13 +198,17 @@ def main():
             pulses    = pulses   [ pulses.index != 0 ] 
             #Remove pulses that have already been processed to avoid inserting duplicates
             try:
-                pulses = pulses.drop( pulsefout['pulses'].index, errors='ignore' )
-            except KeyError:
+                pulsesIdx = pulsefout['pulses'].index
+                pulses = pulses.query("index not in @pulsesIdx")
+            except (KeyError):
                 pass
-            #try:
-            #    shotsData = shotsData.drop( shotsfout['shotsData'].index, errors='ignore')
-            #except KeyError:
-            #    pass                       
+            try:
+                shotsIdx = pulsefout['shotsData'].index
+                shotsData = shotsData.query("index not in @shotsIdx") 
+            except (KeyError):
+                pass
+
+          
             pulsefout.append('pulses'   , pulses   , format='t' , data_columns=True, append = True )           
             shotsfout.append('shotsData', shotsData, format='t' , data_columns=True, append = True )
 
