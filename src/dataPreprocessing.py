@@ -201,10 +201,10 @@ def main():
                 pulses = pulses.drop( pulsefout['pulses'].index, errors='ignore' )
             except KeyError:
                 pass
-            try:
-                shotsData = shotsData.drop( shotsfout['shotsData'].index, errors='ignore')
-            except KeyError:
-                pass                       
+            #try:
+            #    shotsData = shotsData.drop( shotsfout['shotsData'].index, errors='ignore')
+            #except KeyError:
+            #    pass                       
             pulsefout.append('pulses'   , pulses   , format='t' , data_columns=True, append = True )           
             shotsfout.append('shotsData', shotsData, format='t' , data_columns=True, append = True )
 
