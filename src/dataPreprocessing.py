@@ -151,9 +151,9 @@ def main():
             #Load index of data already written to file
             #We check against this to avoid writing duplicates
             try:
-                prevIdx = shotsfout['shotsData'].index
+                shotsIdx = shotsfout['shotsData'].index.levels[0]
             except (KeyError):
-                prevIdx = []
+                shotsIdx = []
                 
             endtime = 0
             for i, start in enumerate(chunks):
@@ -173,7 +173,7 @@ def main():
                                 
                 if shotsTof is not None:      
                     #Some raw files have overlap. If this is the case, drop bunches we already processed.
-                    shotsTof = shotsTof.query('index not in @prevIdx')           
+                    shotsTof = shotsTof.query('pulseId not in @shotsIdx')           
                     
                     #Write down tof data
                     shotsfout.put( 'shotsTof', shotsTof, format='t', append = True )
@@ -202,13 +202,8 @@ def main():
                 pulses = pulses.query("index not in @pulsesIdx")
             except (KeyError):
                 pass
-            try:
-                shotsIdx = pulsefout['shotsData'].index
-                shotsData = shotsData.query("index not in @shotsIdx") 
-            except (KeyError):
-                pass
+            shotsData = shotsData.query("pulseId not in @shotsIdx") 
 
-          
             pulsefout.append('pulses'   , pulses   , format='t' , data_columns=True, append = True )           
             shotsfout.append('shotsData', shotsData, format='t' , data_columns=True, append = True )
 
