@@ -125,7 +125,7 @@ def main():
         print("Opening %s" % fname)
         with h5py.File( fname ) as dataf:
             #Dataframe for macrobunch info
-            pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'), #using int64 instead of uint64 since the latter is not always supported by pytables
+            pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'),
                                      'time'        : dataf[cfg.hdf.times][:, 0],
                                      'undulatorEV' : 1239.84193 / dataf[cfg.hdf.undulSetWL][:, 0], #nanometers to eV
                                      'opisEV'      : dataf[cfg.hdf.opisEV][:, 0],
