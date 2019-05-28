@@ -17,16 +17,18 @@ import pandas as pd
 import numpy as np
 import os
 import uuid
-from dataPreprocessing import Slicer
 from attrdict import AttrDict
 
+from utils import Slicer
+
 #cfguration parameters:
-cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/11005582/raw/hdf/by-start/',     
-                          'files'    : [ 'FLASH2_USER1-2019-03-30T2100.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',     
+                          'files'    : [ 'FLASH2_USER1-2019-04-06T0400.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : { 
-                          'folder' : '',#'/asap3/flash/gpfs/fl24/2019/data/11005582/shared/Analysis/',
-                          'fname'  : 'AUTO',  # use 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
+                          'folder' : '',
+                          # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.     
+                          'fname'  : 'opistest.h5',  
                         },  
            'hdf'      : { 'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
                           'opisTr2'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
@@ -38,14 +40,32 @@ cfg = {    'data'     : { 'path'     : '/asap3/flash/gpfs/fl24/2019/data/1100558
                           'ret4'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
                           'times'      : '/Timing/time stamp/fl2user1',
                         },                
-           'slicing'  : { 'offset'   : 0,        #Offset of first slice in samples (time zero)
+           'slicing1' : { 'offset'   : 3478,      #Offset of first slice in samples (time zero)
                           'period'   : 3500,     #Rep period of FEL in samples
-                          'window'   : 2000,     #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 550,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
-                          'shotsNum' : 50,       #Number of shots per macrobunch
+                          'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
+                          'shotsNum' : 20,       #Number of shots per macrobunch
                         },
-           'tof2ev'   : { 'len'      : 2,        #lenght of flight tube in meters
-                          'dt'       : 0.0014    #interval between tof samples in s
+           'slicing2' : { 'offset'   : 3441,      #Offset of first slice in samples (time zero)
+                          'period'   : 3500,     #Rep period of FEL in samples
+                          'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
+                          'shotsNum' : 20,       #Number of shots per macrobunch
+                        },
+           'slicing3' : { 'offset'   : 3435,      #Offset of first slice in samples (time zero)
+                          'period'   : 3500,     #Rep period of FEL in samples
+                          'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
+                          'shotsNum' : 20,       #Number of shots per macrobunch
+                        },
+           'slicing4' : { 'offset'   : 3433,      #Offset of first slice in samples (time zero)
+                          'period'   : 3500,     #Rep period of FEL in samples
+                          'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
+                          'shotsNum' : 20,       #Number of shots per macrobunch
+                        },
+           'tof2ev'   : { 'len'      : 0.309,      #lenght of flight tube in meters
+                          'dt'       : 0.001429    #interval between tof samples in us
                         },                                                                          
            'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
@@ -56,42 +76,48 @@ cfg = AttrDict(cfg)
 def main():
     outfname = uuid.uuid4().hex + ".temp" if cfg.output.fname == 'AUTO' else cfg.output.fname
     
-    fout = pd.HDFStore(cfg.output.folder + outfname, "w", complevel=6)  # complevel btw 0 and 10; default lib for pandas is zlib, change with complib=''
+    fout = pd.HDFStore(cfg.output.folder + outfname, "w")  # complevel btw 0 and 10
     for fname in cfg.data.files:
         with h5py.File( cfg.data.path + fname ) as dataf:
             #Dataframe for macrobunch info
-            pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'), #using int64 instead of uint64 since the latter is not always supported by pytables
+            pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'),
                                      'time'        : dataf[cfg.hdf.times][:, 0],
                                    } , columns = [ 'pulseId', 'time' ]) 
             pulses = pulses.set_index('pulseId')   
             
-            
             #Slice shot data and add it to shotsTof
-            opisSlicer = Slicer(cfg.slicing, tof2ev = cfg.tof2ev)
+            opisSlicer1 = Slicer(cfg.slicing1, tof2ev = cfg.tof2ev)
+            opisSlicer2 = Slicer(cfg.slicing2, tof2ev = cfg.tof2ev)
+            opisSlicer3 = Slicer(cfg.slicing3, tof2ev = cfg.tof2ev)
+            opisSlicer4 = Slicer(cfg.slicing4, tof2ev = cfg.tof2ev)
                     
-            #NOTE : Slicer will drop all traces with macrobunch id = 0. We will need to remove them from the other dataframes as well.
-            #       The removal must be done after the slicing, otherwise slicer will get arrays with non-matching number of macrobunches
-            chunks = np.arange(0, dataf[cfg.hdf.opisTr1].shape[0], cfg.chunkSize) #We do stuff in cuncks to avoid loading too much data in memory at once
+            #Split up computation in cunks
+            chunks = np.arange(0, dataf[cfg.hdf.opisTr1].shape[0], cfg.chunkSize)
             for i, start in enumerate(chunks):
                 print("processing %s, chunk %d of %d        " % (fname, i, len(chunks)) , end ='\r')
                 sl = slice(start,start+cfg.chunkSize)
                 
-                shots1 = opisSlicer( dataf[cfg.hdf.opisTr1], pulses, sl )
-                shots2 = opisSlicer( dataf[cfg.hdf.opisTr2], pulses, sl )
-                shots3 = opisSlicer( dataf[cfg.hdf.opisTr3], pulses, sl )
-                shots4 = opisSlicer( dataf[cfg.hdf.opisTr4], pulses, sl )
+                shots1 = opisSlicer1( dataf[cfg.hdf.opisTr1][sl], pulses[sl])
+                shots2 = opisSlicer2( dataf[cfg.hdf.opisTr2][sl], pulses[sl])
+                shots3 = opisSlicer3( dataf[cfg.hdf.opisTr3][sl], pulses[sl])
+                shots4 = opisSlicer4( dataf[cfg.hdf.opisTr4][sl], pulses[sl])
 
-                #plot one of the traces
+                #plot one of the traces\
+                energy = False
                 import matplotlib.pyplot as plt
-                shots1.loc[[75634529]].mean(axis=0).plot()
-                #shots2.loc[[75634529]].mean(axis=0).plot()
-                #shots3.loc[[75634529]].mean(axis=0).plot()
-                #shots4.loc[[75634529]].mean(axis=0).plot()
+                shots1.query("pulseId > 81034488 and pulseId < 81034688").mean().plot(use_index=energy)
+                shots2.query("pulseId > 81034488 and pulseId < 81034688").mean().plot(use_index=energy)
+                shots3.query("pulseId > 81034488 and pulseId < 81034688").mean().plot(use_index=energy)
+                shots4.query("pulseId > 81034488 and pulseId < 81034688").mean().plot(use_index=energy)
                 plt.show()
-                                 
-                if shotsTof is not None: 
-                    fout.put( 'opisShots', shotsTof, format='t', append = True )
-
+                
+                exit()
+                if shots1 is not None: 
+                    fout.put( 'tof1', shots1, format='t', append = True )
+                    fout.put( 'tof2', shots2, format='t', append = True )
+                    fout.put( 'tof3', shots3, format='t', append = True )
+                    fout.put( 'tof4', shots4, format='t', append = True )
+                                        
             print()       
     fout.close()
     

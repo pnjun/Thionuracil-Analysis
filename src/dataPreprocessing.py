@@ -23,14 +23,16 @@ from time import time
 from contextlib import suppress
 from attrdict import AttrDict
 
+from utils import Slicer
+
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',     
-                          'files'    : 'FLASH2_USER1-2019-03-2*.h5', #['FLASH2_USER1-2019-03-27T0630.h5'] 'FLASH2_USER1-2019-0?-[^2][^456]*.h5' # List of files to process or globbable string. All files must have the same number of shots
+                          'files'    : 'FLASH2_USER1-2019-0?-[^2][^456]*.h5', #'FLASH2_USER1-2019-03-2*.h5', #['FLASH2_USER1-2019-03-27T0630.h5'] # List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : { 
                           'folder'      : '/media/Data/Beamtime/processed/',
-                          'pulsefname'  : 'index_uvbg.h5',
-                          'shotsfname'  : 'first_block_uvbg.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
+                          'pulsefname'  : 'index_test.h5',
+                          'shotsfname'  : 'first_block_test.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -63,56 +65,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
          }
 cfg = AttrDict(cfg)
 
-class Slicer:
-    def __init__(self, sliceParams, tof2ev = None, removeBg = False):
-        ''' 
-        Prepares a list of indexes for tof trace slicing
-        self.slices is a list of np.ranges, each one corresponding to a slice
-        '''
-        shotsCuts = (sliceParams.offset + sliceParams.skipNum + ( sliceParams.period * np.arange(sliceParams.shotsNum) )).astype(int)
- 
-        self.slices = shotsCuts[:,None] + np.arange(sliceParams.window)
-        
-        self.removeBg = removeBg
-        self.skipNum  = sliceParams.skipNum
-        self.tof2ev = tof2ev # Time in us between each sample point (used for ev conversion, if None no ev conversion is done)
-        
-    def __call__(self, tofData, pulses):
-        '''
-        Slices tofData and returns a dataframe of shots. Each shot is indexed by macrobunch and shotnumber
-        '''
-        pulseList = []
-        indexList = []
-        for trace, pulseId in zip( tofData, pulses.index ):
-            bkg = np.mean(trace) if self.removeBg else 0
-               
-            with suppress(AssertionError):
-                #Some pulses have no macrobunch number => we drop them (don't waste time on useless data)
-                assert(pulseId != 0)
-                pulseList.append( pd.DataFrame(  trace[self.slices] - bkg ))
-                indexList.append( pulseId )
-                
-        #Create multindexed series. Top level index is macrobunch number, sub index is shot num.
-        try:
-            shots = pd.concat(pulseList, keys=indexList)
-            shots.index.rename( ['pulseId', 'shotNum'], inplace=True )
-            
-            #Name columns as tof to eV conversion
-            if self.tof2ev: shots.columns = self.Tof2eV( ( shots.columns + self.skipNum ) ) 
-            
-            return shots
-        except ValueError:
-            return None
-                        
-    def Tof2eV(self, tof):
-        ''' converts time of flight into ectronvolts '''
-        # Constants for conversion:
-        tof *= self.tof2ev.dt
-        s = self.tof2ev.len
-        m_over_e = 5.69
-        # UNITS AND ORDERS OF MAGNITUDE DO CHECK OUT    
-        return 0.5 * m_over_e * ( s / ( tof ) )**2
-        
+
 def main():
     outfname = uuid.uuid4().hex + '.temp' if cfg.output.shotsfname == 'AUTO' else cfg.output.shotsfname
     
