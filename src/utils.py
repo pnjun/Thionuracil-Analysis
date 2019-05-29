@@ -1,20 +1,56 @@
 ''' Moudle with helper classes for data manipulation / analysis '''
-import scipy as sp
+import scipy.integrate as integ
+from scipy import interpolate
 import numpy as np
 
 class evConverter:
-    def __init__(self, potential, lenght):
-        self.v = potential
+    ''' Converts between tof and ev for a given retardation voltage 
+        Units are volts, electronvolts and microseconds
+        Retarder must be a vectorized callable with the lenght and maxV attributes.
+        Use the classmethods to create a converted already calibrated for the main tof 
+        or the OPIS tofs
+    '''
+    def __init__(self, retarder, lenght, evMin, evMax, evStep):
+        self.r = retarder
         self.l = lenght
-                
+        
+        evRange = np.arange(evMin, evMax, evStep)
+        tofVals = [ self.ev2tof(ev) for ev in evRange ]
+        self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
+        
+    @classmethod
+    def mainTof(cls, retarder):
+        ''' Defines the potential model for the TOF spectrometer
+            offset is a global 'retardation' we apply for absolutely no reason
+            except that it makes the calibration better.
+        '''
+        offset = 0.7
+        def potential(x):
+            if   x < 0.087:               #free flight before retarder lens
+                return 0 - offset   
+            elif x < 1.784:               #flight inside tube
+                return retarder - offset
+            else:                         #acceleration before MCP
+                return 300 - offset
+        #retarder is negative! => we want electron energies above -retarder [eV] 
+        return cls(potential, 1.787, -retarder+offset+2, -retarder+offset+300, 2)
+        
+
     def __call__(self, tof):
-        pass       
+        return self.interpolator(tof)
+    
+    def ev2tof(self, e):
+        return integ.quad( lambda x : self._integrand(x,e), 0, self.l)[0]
 
-    def _integrand(self, x, e):
-        return np.sqrt( 1 / ( e - self.v(x) ) )
+    def _integrand(self, x, en):
+        m_over_e = 5.69
+        return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!
+        
 
-    def e2tof(self, e):
-        return sp.integrate.quad( lambda x : self._integrand(x,e), 0, self.l)
+
+
+@np.vectorize
+
 
 
 class Slicer:
