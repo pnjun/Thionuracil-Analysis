@@ -20,19 +20,18 @@ import numpy as np
 import uuid
 import os, glob
 from time import time
-from contextlib import suppress
 from attrdict import AttrDict
 
 from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',     
-                          'files'    : 'FLASH2_USER1-2019-0?-[^2][^456]*.h5', #'FLASH2_USER1-2019-03-2*.h5', #['FLASH2_USER1-2019-03-27T0630.h5'] # List of files to process or globbable string. All files must have the same number of shots
+                          'files'    : 'FLASH2_USER1-2019-03-2*.h5' # ['FLASH2_USER1-2019-03-25T1115.h5'], 'FLASH2_USER1-2019-0?-[^2][^456]*.h5',  List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : { 
                           'folder'      : '/media/Data/Beamtime/processed/',
-                          'pulsefname'  : 'index_test.h5',
-                          'shotsfname'  : 'first_block_test.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
+                          'pulsefname'  : 'index_BAM.h5',
+                          'shotsfname'  : 'first_block_BAM.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.        
                         },  
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -42,7 +41,8 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
                           'opisEV'     : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Processed/mean phtoton energy',
                           'undulSetWL' : '/FL2/Electron Diagnostic/Undulator setting/set wavelength',
                           'shotGmd'    : '/FL2/Photon Diagnostic/GMD/Pulse resolved energy/energy hall',
-                          'laserTrace' : '/FL2/Experiment/MTCA-EXP1/SIS8300 100MHz ADC/CH4/TD'
+                          'laserTrace' : '/FL2/Experiment/MTCA-EXP1/SIS8300 100MHz ADC/CH4/TD',
+                          'BAM'        : '/FL1/Electron Diagnostic/BAM/4DBC3/electron bunch arrival time (low charge)'
                         },                
            'slicing'  : { 'offset'   : 21732,       #Offset of first slice in samples (time zero)
                           'period'   : 9969.67,     #Rep period of FEL in samples
@@ -73,6 +73,7 @@ def main():
     pulsefout = pd.HDFStore(cfg.output.folder + cfg.output.pulsefname)
     
     flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
+    flist = sorted(flist)
     print("processing %d files" % len(flist))
     for fname in flist:
         print("Opening %s" % fname)
@@ -139,16 +140,25 @@ def main():
             
             #Dataframe for shot by shot metadata. TOF traces are in shotsTof  
             #Contains GMD and UV laser power shot by shot   
-            shotsData = pd.DataFrame( dataf[cfg.hdf.shotGmd], index=pulses.index )
-            #purge invalid IDs, stack shots (creates multindex) and rename column
-            shotsData = shotsData[shotsData.index != 0].stack(dropna = False).to_frame(name='GMD') 
-            shotsData.index.rename( ['pulseId', 'shotNum'], inplace=True )          
-            shotsData = shotsData.join(pd.concat(laserStatusList).to_frame(name='uvPow'))
+            gmd = pd.DataFrame( dataf[cfg.hdf.shotGmd],     index=pulses.index ).stack(dropna = False).to_frame(name='GMD') 
+            gmd.index.rename( ['pulseId', 'shotNum'], inplace=True )    
+            try:
+                bam = pd.DataFrame( dataf[cfg.hdf.BAM][:,62:62+cfg.slicing.shotsNum*5:5],  
+                                                            index=pulses.index ).stack(dropna = False).to_frame(name='BAM')     
+            except KeyError:
+                #if BAM data not present, fill it with NaN
+                nans = np.empty(dataf[cfg.hdf.shotGmd].shape).astype('float32')
+                nans[:] = np.nan
+                bam = pd.DataFrame(nans, index=pulses.index ).stack(dropna = False).to_frame(name='BAM') 
+            bam.index.rename( ['pulseId', 'shotNum'], inplace=True )                     
+                  
+            shotsData = gmd.join(pd.concat(laserStatusList).to_frame(name='uvPow'))
+            shotsData = shotsData.join(bam)
+            
+            #purge invalid IDs
+            shotsData = shotsData.query('pulseId != 0')
+            pulses    = pulses.query('index != 0') 
 
-            #Write out the DFs   
- 
-            #purge invalid marcobunch id 
-            pulses    = pulses   [ pulses.index != 0 ] 
             #Remove pulses that have already been processed to avoid inserting duplicates
             try:
                 pulsesIdx = pulsefout['pulses'].index
@@ -156,7 +166,7 @@ def main():
             except (KeyError):
                 pass
             shotsData = shotsData.query("pulseId not in @shotsIdx") 
-
+            print(shotsData)
             pulsefout.append('pulses'   , pulses   , format='t' , data_columns=True, append = True )           
             shotsfout.append('shotsData', shotsData, format='t' , data_columns=True, append = True )
 
