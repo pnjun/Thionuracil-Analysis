@@ -2,6 +2,8 @@
 import scipy.integrate as integ
 from scipy import interpolate
 import numpy as np
+from contextlib import suppress
+import pandas as pd
 
 class evConverter:
     ''' Converts between tof and ev for a given retardation voltage 
@@ -19,21 +21,22 @@ class evConverter:
         self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
         
     @classmethod
-    def mainTof(cls, retarder):
+    def mainTof(cls, retarder, mcp = None, evOffset = 0.6):
         ''' Defines the potential model for the TOF spectrometer
             offset is a global 'retardation' we apply for absolutely no reason
             except that it makes the calibration better.
         '''
-        offset = 0.7
+        if mcp is None: mcp = retarder
+        
         def potential(x):
-            if   x < 0.087:               #free flight before retarder lens
-                return 0 - offset   
+            if   x < 0.05:               #free flight before retarder lens
+                return -evOffset   
             elif x < 1.784:               #flight inside tube
-                return retarder - offset
+                return -evOffset + retarder
             else:                         #acceleration before MCP
-                return 300 - offset
+                return -evOffset + mcp
         #retarder is negative! => we want electron energies above -retarder [eV] 
-        return cls(potential, 1.787, -retarder+offset+2, -retarder+offset+300, 2)
+        return cls(potential, 1.787, -retarder+evOffset+2, -retarder+evOffset+350, 2)
         
 
     def __call__(self, tof):
@@ -46,12 +49,6 @@ class evConverter:
         m_over_e = 5.69
         return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!
         
-
-
-
-@np.vectorize
-
-
 
 class Slicer:
     ''' Splits a ADC trace into slices given a set of slicing parameters '''
