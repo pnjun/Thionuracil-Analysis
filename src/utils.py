@@ -5,6 +5,21 @@ import numpy as np
 from contextlib import suppress
 import pandas as pd
 
+
+def filterPulses(pulses, filters):
+    ''' Filters a df of pulses for all rows where parameters are within the bounds defined in filt object
+        Possible filters attribute are coloums of pulses, they must be a tuple of (min, max)
+    '''
+    queryList = []
+    for name in filters.keys():
+        queryList.append( "@filters.{0}[0] < {0} < @filters.{0}[1]".format(name) )
+ 
+    if not queryList:
+        raise KeyError("At least one filter parameter must be given")
+ 
+    queryExpr = " and ".join(queryList)
+    return pulses.query(queryExpr)
+
 class evConverter:
     ''' Converts between tof and ev for a given retardation voltage 
         Units are volts, electronvolts and microseconds
