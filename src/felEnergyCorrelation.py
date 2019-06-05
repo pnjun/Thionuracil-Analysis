@@ -1,7 +1,6 @@
 #!/usr/bin/python3.6
 '''
-Calculates correlation coefficients between FEL photon energy and pulse energy.
-To make the script faster, gmd data needed for the calculation should be saved in a separat file beforehand.
+Calculates correlation coefficients between FEL photon energy and pulse energy using pandas biult-in function DataFrame.corr().
 '''
 from attrdict import AttrDict
 import pandas as pd
@@ -10,11 +9,11 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 
-cfg = { 'data'   : { 'path1'  : '/media/Data/Beamtime/processed/',
-                     'path2'  : './',
+cfg = { 'data'   : { 'path'  : '/media/Data/Beamtime/processed/',
                      'index'  : 'index.h5',
-                     'gmd'    : 'GMDdata.h5'},
+                     'trace'    : 'first_block.h5'},
         'hdf'    : { 'pulses' : '/pulses',
+                     'photon' : '/shotsData',
                      'time'   : 'time',
                      'undu'   : 'undulatorEV',
                      'opis'   : 'opisEV',
@@ -25,34 +24,24 @@ cfg = { 'data'   : { 'path1'  : '/media/Data/Beamtime/processed/',
 
 cfg = AttrDict(cfg)
 
-def getIndices(data, lowerLim, upperLim):
-
-    indices = []
-    for i in range(len(data)):
-        value = data.iloc[i]
-        index = data.index.values[i]
-        if value >= lowerLim and value <= upperLim and index not in indices:
-            indices.append(index)
-        if value > upperLim: break
-
-    return indices
-
-index = pd.read_hdf(cfg.data.path1 + cfg.data.index, cfg.hdf.pulses).sort_index()
-gmd = pd.read_hdf(cfg.data.path2 + cfg.data.gmd, cfg.hdf.gmd).sort_index()
-
 start = int(time.mktime(datetime.datetime.strptime(cfg.time.start, '%d.%m.%y %H:%M:%S').timetuple()))
 stop  = int(time.mktime(datetime.datetime.strptime(cfg.time.stop, '%d.%m.%y %H:%M:%S').timetuple()))
 
-times   = index[cfg.hdf.time]
-indices = np.array(getIndices(times, start, stop))
-opis    = index[cfg.hdf.opis].loc[indices]
-undu    = index[cfg.hdf.undu].loc[indices]
-gmd     = gmd.loc[indices]
+idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
+tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
+pulse = idx.select('pulses', where='time >= start and time < stop')
+gmd = tr.select('shotsData', where='pulseId >= pulse.index[0] and pulseId <= pulse.index[-1]')['GMD']
+idx.close()
+tr.close()
+
+#gmdSize = gmd.index.levels[0].values.size
+#pulseSize = pulse.index.values.size
+#print(gmdSize == pulseSize)
 
 # correlation with macrobunch mean
-mbEn = np.array([[gmd.loc[i].mean(), gmd.loc[i].std(), gmd.loc[i].sum()] for i in indices]).transpose()
-df = pd.DataFrame({'undulatorEV': undu,
-                   'opis'       : opis,
+mbEn = np.array([[gmd.loc[i].mean(), gmd.loc[i].std(), gmd.loc[i].sum()] for i in gmd.index.levels[0].values]).transpose()
+df = pd.DataFrame({'undulatorEV': pulse[cfg.hdf.undu].values,
+                   'opis'       : pulse[cfg.hdf.opis].values,
                    'mbMean'     : mbEn[0],
                    'mbStd'      : mbEn[1],
                    'mbSum'      : mbEn[2]
@@ -89,7 +78,7 @@ plt.tight_layout()
 plt.savefig(cfg.output.folder+'FEL_pulse_vs_photon_energy/pulse_vs_photon_energy.png')
 plt.close(fig)
 
-'''
+
 mask = df['mbMean'] < 15
 df = df.where(mask)
 df_bm = df.groupby(pd.cut(df['undulatorEV'], 20))
@@ -153,4 +142,4 @@ plt.ylabel('Correlation coefficient')
 plt.tight_layout()
 plt.savefig(cfg.output.folder+'FEL_pulse_vs_photon_energy/corrCoeffs.png')
 plt.close(fig)
-'''
+
