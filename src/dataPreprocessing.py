@@ -26,7 +26,7 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',     
-                          'files'    : 'FLASH2_USER1-2019-03-2*.h5' # ['FLASH2_USER1-2019-03-25T1115.h5'], 'FLASH2_USER1-2019-0?-[^2][^456]*.h5',  List of files to process or globbable string. All files must have the same number of shots
+                          'files'    : 'FLASH2_USER1-2019-0?-[^2][^456]*.h5' #'FLASH2_USER1-2019-03-2*.h5' # ['FLASH2_USER1-2019-03-25T1115.h5'],  List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : { 
                           'folder'      : '/media/Data/Beamtime/processed/',
@@ -110,7 +110,7 @@ def main():
                 shotsIdx = []
                 
             endtime = 0
-            for i, start in enumerate(chunks):
+            for i, start in enumerate(chunks[]):
                 starttime = endtime
                 endtime = time()
                 print("chunk %d of %d (%.1f bunches/sec )        " % (i+1, len(chunks), cfg.chunkSize / (endtime-starttime) ) , end ='\r')

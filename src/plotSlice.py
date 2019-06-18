@@ -18,9 +18,6 @@ cfg = AttrDict(cfg)
 idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
 tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
 
-#start = datetime(2019,3,25,12,11,0).timestamp()
-#stop  = datetime(2019,3,25,12,13,0).timestamp()
-
 start = datetime(2019,3,26,2,3,0).timestamp()
 stop  = datetime(2019,3,26,2,5,0).timestamp()
 

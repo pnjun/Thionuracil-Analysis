@@ -19,7 +19,7 @@ def filterPulses(pulses, filters):
  
     queryExpr = " and ".join(queryList)
     return pulses.query(queryExpr)
-
+  
 class evConverter:
     ''' Converts between tof and ev for a given retardation voltage 
         Units are volts, electronvolts and microseconds

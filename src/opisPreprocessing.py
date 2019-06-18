@@ -40,7 +40,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
                           'ret4'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
                           'times'      : '/Timing/time stamp/fl2user1',
                         },                
-           'slicing1' : { 'offset'   : 3478,      #Offset of first slice in samples (time zero)
+           'slicing1' : { 'offset'   : 3478,     #Offset of first slice in samples (time zero)
                           'period'   : 3500,     #Rep period of FEL in samples
                           'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
                           'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)

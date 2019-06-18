@@ -70,6 +70,12 @@ plt.plot(kr_evs, kr_data, label = 'new')
 plt.plot(kr_data.index - kr_retarder, kr_data, label='old') 
 plt.legend()
 
+plt.figure()
+plt.gca().set_xlim([0,300]) 
+plt.gca().set_ylabel('intensity [a.u.]')
+plt.gca().set_xlabel('electron energy [eV]')  
+plt.gca().set_title('Thiouracil 0V retardation')
+plt.plot(th1_evs, th1_data)
 
 plt.figure()
 plt.subplot(211)
