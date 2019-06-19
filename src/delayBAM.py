@@ -15,14 +15,14 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
                           'index'    : 'index_BAM.h5',
                           'trace'    : 'first_block_BAM.h5' #'71001915-71071776.h5' #'first block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,23,45,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,23,51,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,27,0,30,0).timestamp(),
+                          'stop'  : datetime(2019,3,27,1,0,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (270,271),
                           'retarder'    : (-81,-79),
-                          'waveplate'   : (39,41)
+                          'waveplate'   : (6,9)
                         },
-           'delaybins': 1177.5 + np.arange(-5, 5, 0.05),
+           'delaybins': 1178.5 + np.arange(-4, 4, 0.01),
       }
 cfg = AttrDict(cfg)
 
@@ -49,8 +49,15 @@ def shiftBAM(bam, delay):
 bam = cp.array(shotsData.BAM.values)
 delay = cp.array(pulses.delay.values)
 #Shift BAM and add column with new data
-shiftBAM[pulses.shape[0], shotsData.index.levels[1].shape[0]](bam,delay)
+shiftBAM[pulses.shape[0], shotsData.index.levels[1].shape[0] // 2](bam,delay)
 shotsData['delay'] = bam.get()
+'''
+for index, row in pulses.iterrows():
+    shotsData.loc[index, 'delay'] = row.delay
+'''
+
+print(pulses.shape)
+print(shotsData.shape)
 
 #Read in TOF data and calulate difference
 shotsTof  = tr.select('shotsTof',  where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]', 'pulseId in pulses.index'] )
@@ -60,9 +67,6 @@ del shotsTof
 shotsDiff = pd.DataFrame( shotsUvOn.to_numpy() - shotsUvOff.to_numpy(), index = shotsUvOn.index )
 del shotsUvOff
 
-print("shotsData", shotsData.shape)
-print("shotsDiff", shotsDiff.shape)
-
 #Bin data on delay
 bins = shotsData.groupby( pd.cut( shotsData.delay, cfg.delaybins ) )
 
@@ -71,10 +75,11 @@ img = []
 delays = []
 for name, group in bins:
     if len(group):
-        img.append   ( shotsDiff.query('index in @group.index').mean() )
+        img.append   ( shotsDiff.loc[group.index].mean() )
         delays.append( name.mid )
 
 img = np.array(img)
+
 plt.pcolor(shotsUvOn.iloc[0].index + 80, delays ,img, cmap='bwr')
 
 plt.figure()

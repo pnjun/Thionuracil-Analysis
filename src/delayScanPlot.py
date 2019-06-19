@@ -12,17 +12,16 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
                           'index'    : 'index_BAM.h5',
                           'trace'    : 'first_block_BAM.h5' #'71001915-71071776.h5' #'first block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,23,45,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,23,51,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,27,0,30,0).timestamp(),
+                          'stop'  : datetime(2019,3,27,1,0,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (270,271),
                           'retarder'    : (-81,-79),
-                          'waveplate'   : (39,41)
+                          'waveplate'   : (6,9)
                         },
-           'delaybins': 1177.5 + np.arange(-5, 5, 0.05),
+           'delaybins': 1178.5 + np.arange(-2, 2, 0.01),
       }
 cfg = AttrDict(cfg)
-
 
 idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
 tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
@@ -48,7 +47,7 @@ bins = pulses.groupby( pd.cut( pulses.delay, cfg.delaybins ) )
 img = []
 delays = []
 for name, group in bins:
-    if len(group.pulseId):
+    if len(group):
         img.append   ( diff.query('pulseId in @group.pulseId').mean() )
         delays.append( name.mid )
 
