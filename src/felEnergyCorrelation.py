@@ -9,9 +9,9 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 
-cfg = { 'data'   : { 'path'  : '/media/Data/Beamtime/processed/',
+cfg = { 'data'   : { 'path'   : '/media/Data/Beamtime/processed/',
                      'index'  : 'index.h5',
-                     'trace'    : 'first_block.h5'},
+                     'trace'  : 'first_block.h5'},
         'hdf'    : { 'pulses' : '/pulses',
                      'photon' : '/shotsData',
                      'time'   : 'time',
@@ -39,7 +39,7 @@ tr.close()
 #print(gmdSize == pulseSize)
 
 # correlation with macrobunch mean
-mbEn = np.array([[gmd.loc[i].mean(), gmd.loc[i].std(), gmd.loc[i].sum()] for i in gmd.index.levels[0].values]).transpose()
+mbEn = np.array([[gmd.loc[i].mean(), gmd.loc[i].std(), gmd.loc[i].sum()] for i in gmd.index.levels[0].values]).transpose() # array with statistical gmd data for each macrobunch
 df = pd.DataFrame({'undulatorEV': pulse[cfg.hdf.undu].values,
                    'opis'       : pulse[cfg.hdf.opis].values,
                    'mbMean'     : mbEn[0],
@@ -47,29 +47,21 @@ df = pd.DataFrame({'undulatorEV': pulse[cfg.hdf.undu].values,
                    'mbSum'      : mbEn[2]
                   })
 
-fig = plt.figure()
-plt.plot(df['undulatorEV'].values, '.',markersize=2, label='undulator setpoints')
-plt.plot(df['opis'].values, '.',markersize=2, label='OPIS values')
-plt.title('FEL photon energy\n{0} -- {1}'.format(cfg.time.start, cfg.time.stop))
-plt.ylabel('Photon energy (eV)')
-plt.xlabel('Shot number')
-plt.legend()
-plt.tight_layout()
-plt.savefig(cfg.output.folder+'FEL_pulse_vs_photon_energy/photon_energy.png')
-plt.close(fig)
-
-fig = plt.figure()
-plt.plot(df['mbMean'].values, '.',markersize=2)
-plt.ylabel(u'Pulse energy (µJ)')
-plt.xlabel('shot number')
+fig, ax = plt.subplots(2,1)
+ax[0].plot(df['undulatorEV'].values, '.',markersize=1, label='undulator setpoints')
+ax[0].plot(df['opis'].values, '.',markersize=1, label='OPIS values')
+ax[0].set_ylabel('Photon energy (eV)')
+ax[1].plot(df['mbMean'].values, '.',markersize=1)
+ax[1].set_ylabel(u'Pulse energy (µJ)')
+ax[1].set_xlabel('Macrobunch')
 plt.title('FEL pulse energy\n{0} -- {1}'.format(cfg.time.start, cfg.time.stop))
 plt.tight_layout()
-plt.savefig(cfg.output.folder+'FEL_pulse_vs_photon_energy/pulse_energy.png')
+plt.savefig(cfg.output.folder+'FEL_pulse_vs_photon_energy/timeline.png')
 plt.close(fig)
 
 fig = plt.figure()
-plt.plot(df['undulatorEV'].values, df['mbMean'].values,'.',markersize=2, label='undulator setpoints')
-plt.plot(df['opis'].values, df['mbMean'].values,'.',markersize=2, label='OPIS values')
+plt.plot(df['undulatorEV'].values, df['mbMean'].values,'.',markersize=1, label='undulator setpoints')
+#plt.plot(df['opis'].values, df['mbMean'].values,'.',markersize=1, label='OPIS values')
 plt.xlabel('FEL photon energy (eV)')
 plt.ylabel('Pulse energy (µJ)')
 plt.title('FEL photon vs. pulse energy\n{0} -- {1}'.format(cfg.time.start, cfg.time.stop))
@@ -78,9 +70,8 @@ plt.tight_layout()
 plt.savefig(cfg.output.folder+'FEL_pulse_vs_photon_energy/pulse_vs_photon_energy.png')
 plt.close(fig)
 
-
-mask = df['mbMean'] < 15
-df = df.where(mask)
+#mask = df['mbMean'] < 100
+#df = df.where(mask)
 df_bm = df.groupby(pd.cut(df['undulatorEV'], 20))
 df_bmStd = df_bm.std()
 df_bm = df_bm.mean()
@@ -98,20 +89,21 @@ plt.close(fig)
 # pulse wise correlation
 corr = []
 for i in range(50):
-
     #fig, ax = plt.subplots(1,1)
     #gmd.hist(column=i, bins=30, ax=ax)
     #ax.set_xlabel('pulse energy (µJ)')
     #ax.set_ylabel('counts')
     #plt.tight_layout()
-    #plt.savefig('./Graphs/hist_pulseEn_pulse{}.png'.format(i+1))
+    #plt.savefig('./Graphs/hist_pulseEn_pulse{0}.png'.format(i+1))
     #plt.close(fig)
 
-    h = 15
-    mask = gmd[i] < h
-    data = gmd[i].where(mask)
-    data = pd.DataFrame({'undulatorEV' : undu.values,
-                        'pulseEn'      : data.values})
+    #h = 15
+    #mask = df[i] < h
+    data = gmd.xs(i, level=1, drop_level=False)#.where(mask)
+
+    data = pd.DataFrame({'undulatorEV': pulse[cfg.hdf.undu].values,
+                         'opis'       : pulse[cfg.hdf.opis].values,
+                         'pulseEn'    : data.values})
     dataB = data.groupby(pd.cut(data['undulatorEV'], 20))
     dataBStd = dataB.std()
     dataB = dataB.mean()
