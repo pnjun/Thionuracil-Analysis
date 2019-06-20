@@ -15,7 +15,7 @@ cfg = { 'data'   : { 'path'   : '/media/Data/Beamtime/processed/',
                      'trace' : 'first_block.h5'},
         'hdf'    : { 'pulses' : '/pulses',
                      'time'   : 'time',
-                     'gmd'    : 'GMD',
+                     'gmd'    : 'Uv laser power',
                      'tof'    : '/shotsTof',
                      'photon' : '/shotsData'},
         'time'   : { 'start'  : '25.03.19 15:08:00',
@@ -24,68 +24,68 @@ cfg = { 'data'   : { 'path'   : '/media/Data/Beamtime/processed/',
 cfg = AttrDict(cfg)
 
 
-def gmdBin(tofData, gmdData, bins=10):
+def laserIntBin(tofData, laserData, bins=10):
     """Bins ToF traces by GMD values within a macrobunch.
 
     Keyword arguments:
     tofData -- standard tof dataframe from hdf5 files
-    gmdData -- standard gmd dataframe from hdf5 files
+    laserData -- standard GMD or UV laser power dataframe from hdf5 files
     bins -- integer, number of bins
 
     Output:
-    binnedTof -- pandas Dataframe with multindex (pulseId, gmdBin), ToF traces are summed for each bin
-    binnedGmd -- pandas Dataframe with multindex (pulseId, gmdBin), GMD mean and sum for each bin
+    binnedTof -- pandas Dataframe with multindex (pulseId, bins), ToF traces are summed for each bin
+    binnedLaser -- pandas Dataframe with multindex (pulseId, bins), includes mean and sum for each bin
     """
     # calculate extrema over given dataframe and create interval range
-    gmdMax = np.ceil(gmdData.max())
-    gmdMin = np.floor(gmdData.min())
-    intervals = pd.interval_range(start=gmdMin, end=gmdMax, periods=bins)
+    laserMax = np.ceil(laserData.max())
+    laserMin = np.floor(laserData.min())
+    intervals = pd.interval_range(start=laserMin, end=laserMax, periods=bins)
 
     print("Binning ToF traces:")
     i = 0
     binnedTof = [] # list for storing binned tofs
-    binnedGmdSum = [] # list for storing binned gmds
-    binnedGmdMean = []
+    binnedLaserSum = [] # list for storing binned gmds
+    binnedLaserMean = []
     for bunch in tofData.index.levels[0].values:
         i += 1
         print("Bunch: {0:02d}/{1}".format(i, tofData.index.levels[0].values.size), end="\r")
         # define local variables with data (turns out this is faster than doing it in one line...)
         pulseTofData = tofData.loc[bunch]
-        pulseGmdData = gmd.loc[bunch]
+        pulseLaserData = laserData.loc[bunch]
         # sort indices from GMD data according to intervals
-        gmdBinned = pd.cut(pulseGmdData, intervals)
+        laserBinned = pd.cut(pulseLaserData, intervals)
         # group actual data using sorted indices
-        pulseGmdData = pulseGmdData.groupby(gmdBinned)
-        pulseTofData = pulseTofData.groupby(gmdBinned)
+        pulseLaserData = pulseLaserData.groupby(laserBinned)
+        pulseTofData = pulseTofData.groupby(laserBinned)
         # append to lists
         for a in pulseTofData.sum().values:
             binnedTof.append(a)
-        for b in pulseGmdData.sum().values:
-            binnedGmdSum.append(b)
-        for c in pulseGmdData.mean().values:
-            binnedGmdMean.append(c)
+        for b in pulseLaserData.sum().values:
+            binnedLaserSum.append(b)
+        for c in pulseLaserData.mean().values:
+            binnedLaserMean.append(c)
 
     # create new MultiIndex including bunch
     index = []
     for i in tofData.index.levels[0].values:
         for j in intervals:
             index.append([i, j])
-    index = pd.MultiIndex.from_arrays(np.array(index).transpose(), names=["pulseId", "gmdBin"])
+    index = pd.MultiIndex.from_arrays(np.array(index).transpose(), names=["pulseId", "bins"])
 
     # create new dataframes with binned data
     binnedTof = pd.DataFrame(data=np.array(binnedTof), index=index)
-    binnedGmd = pd.DataFrame(data=np.array([binnedGmdSum, binnedGmdMean]).transpose(), index=index, columns=["GMD sum", "GMD mean"])
+    binnedLaser = pd.DataFrame(data=np.array([binnedLaserSum, binnedLaserMean]).transpose(), index=index, columns=["Sum", "Mean"])
     print("")
     print("Done. Returning binned data.")
 
-    return binnedTof, binnedGmd
+    return binnedTof, binnedLaser
 
-def gmdNorm(tofData, gmdData):
+def laserIntNorm(tofData, laserData):
     """Divide each ToF trace of a pulse within a macrobunch by its GMD value and returns the normalised tof dataframe.
 
     Keyword arguments:
     tofData -- standard tof dataframe from hdf5 files
-    gmdData -- standard gmd dataframe from hdf5 files
+    laserData -- standard gmd dataframe from hdf5 files
 
     Output:
     normedTof -- dataframe similar to tofData but normalised on GMD data and no column names
@@ -99,9 +99,9 @@ def gmdNorm(tofData, gmdData):
             print("Bunch: {0:02d}/{1}, Pulse: {2:02d}/50".format(i, tofData.index.levels[0].values.size, pulse+1), end="\r")
             # define local variables with data (turns out this is faster than doing it in one line...)
             pulseTofData = tofData.loc[bunch].loc[pulse]
-            pulseGmdData = gmd.loc[bunch].loc[pulse]
+            pulselaserData = laserData.loc[bunch].loc[pulse]
             # divide ToF data by GMD
-            pulseTofData = pulseTofData.div(pulseGmdData)
+            pulseTofData = pulseTofData.div(pulselaserData)
             # store new ToF in list
             normedTof.append(pulseTofData.values)
     
@@ -113,12 +113,12 @@ def gmdNorm(tofData, gmdData):
     return normedTof
 
 
-def gmdSort(tofData, gmdData):
+def laserIntSort(tofData, laserData):
     """Sorts ToF traces by GMD values within a macrobunch.
 
     Keyword arguments:
     tofData -- standard tof dataframe from hdf5 files
-    gmdData -- standard gmd dataframe from hdf5 files
+    laserData -- standard gmd dataframe from hdf5 files
     """
     pass
 
@@ -136,5 +136,5 @@ if __name__ == '__main__':
     idx.close()
     tr.close()
 
-    #dataNormed = gmdNorm(data,gmd)
-    dataBinned, gmdBinned = gmdBin(data, gmd, bins=10)
+    #dataNormed = laserNorm(data,gmd)
+    dataBinned, gmdBinned = laserIntBin(data, gmd, bins=10)
