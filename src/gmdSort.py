@@ -1,8 +1,6 @@
 #!/usr/bin/3.6
 '''
-Contains functions to sort, bin and normalise TOF signal to FEL pulse energy
-
-Technically, it should also be applicable to UV power and maybe other parameters.
+Contains functions to (sort,) bin and normalise TOF signal to FEL pulse energy or UV laser power.
 '''
 from attrdict import AttrDict
 import time
@@ -15,11 +13,11 @@ cfg = { 'data'   : { 'path'   : '/media/Data/Beamtime/processed/',
                      'trace' : 'first_block.h5'},
         'hdf'    : { 'pulses' : '/pulses',
                      'time'   : 'time',
-                     'gmd'    : 'Uv laser power',
+                     'param'    : 'uvPow',
                      'tof'    : '/shotsTof',
                      'photon' : '/shotsData'},
-        'time'   : { 'start'  : '25.03.19 15:08:00',
-                     'stop'   : '25.03.19 15:08:10'}}
+        'time'   : { 'start'  : '26.03.19 04:42:00',
+                     'stop'   : '26.03.19 04:53:00'}}
 
 cfg = AttrDict(cfg)
 
@@ -90,9 +88,9 @@ def laserIntNorm(tofData, laserData):
     Output:
     normedTof -- dataframe similar to tofData but normalised on GMD data and no column names
     """
-    print("Normalize Tof data on GMD:")
+    print("Normalize Tof traces:")
     i = 0
-    normedTof = [] # list for storing results
+    normedTof = []
     for bunch in tofData.index.levels[0].values: # loop over bunches
         i += 1
         for pulse in tofData.index.levels[1].values: # loop over pulses
@@ -101,16 +99,16 @@ def laserIntNorm(tofData, laserData):
             pulseTofData = tofData.loc[bunch].loc[pulse]
             pulselaserData = laserData.loc[bunch].loc[pulse]
             # divide ToF data by GMD
-            pulseTofData = pulseTofData.div(pulselaserData)
+            pulseTofData = pulseTofData / pulselaserData
             # store new ToF in list
             normedTof.append(pulseTofData.values)
-    
+
     print("")
     # Create new dataframe
-    normedTof = pd.DataFrame(data = normedTof, index=tofData.index)
+    tofData = pd.DataFrame(data = np.array(normedTof), index=tofData.index)
     print("Done. Returning normalized dataframe.")
     # return stuff
-    return normedTof
+    return tofData
 
 
 def laserIntSort(tofData, laserData):
@@ -131,10 +129,10 @@ if __name__ == '__main__':
     idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
     tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
     pulse = idx.select('pulses', where='time >= start and time < stop')
-    gmd = tr.select('shotsData', where='pulseId >= pulse.index[0] and pulseId <= pulse.index[-1]')['GMD']
+    param = tr.select('shotsData', where='pulseId >= pulse.index[0] and pulseId <= pulse.index[-1]')[cfg.hdf.param]
     data = tr.select('shotsTof', where='pulseId >= pulse.index[0] and pulseId <= pulse.index[-1]')
     idx.close()
     tr.close()
 
-    #dataNormed = laserNorm(data,gmd)
-    dataBinned, gmdBinned = laserIntBin(data, gmd, bins=10)
+    data = laserIntNorm(data,param)
+    data, param = laserIntBin(data, param, bins=10)
