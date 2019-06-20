@@ -17,7 +17,7 @@ cfg = { 'data'   : { 'path'   : '/media/Data/Beamtime/processed/',
                      'tof'    : '/shotsTof',
                      'photon' : '/shotsData'},
         'time'   : { 'start'  : '26.03.19 04:42:00',
-                     'stop'   : '26.03.19 04:53:00'}}
+                     'stop'   : '26.03.19 05:00:00'}}
 
 cfg = AttrDict(cfg)
 
@@ -28,16 +28,19 @@ def laserIntBin(tofData, laserData, bins=10):
     Keyword arguments:
     tofData -- standard tof dataframe from hdf5 files
     laserData -- standard GMD or UV laser power dataframe from hdf5 files
-    bins -- integer, number of bins
+    bins -- integer (number of bins) or pandas IntervalIndex object
 
     Output:
     binnedTof -- pandas Dataframe with multindex (pulseId, bins), ToF traces are summed for each bin
     binnedLaser -- pandas Dataframe with multindex (pulseId, bins), includes mean and sum for each bin
     """
-    # calculate extrema over given dataframe and create interval range
-    laserMax = np.ceil(laserData.max())
-    laserMin = np.floor(laserData.min())
-    intervals = pd.interval_range(start=laserMin, end=laserMax, periods=bins)
+    if type(bins) == int:
+        # calculate extrema over given dataframe and create interval range
+        laserMax = np.ceil(laserData.max())
+        laserMin = np.floor(laserData.min())
+        bins = pd.interval_range(start=laserMin, end=laserMax, periods=bins)
+    elif type(bins) != pd.core.indexes.interval.IntervalIndex:
+        raise TypeError("You should use an integer or pandas IntervalIndex object for bins!")
 
     print("Binning ToF traces:")
     i = 0
@@ -51,7 +54,7 @@ def laserIntBin(tofData, laserData, bins=10):
         pulseTofData = tofData.loc[bunch]
         pulseLaserData = laserData.loc[bunch]
         # sort indices from GMD data according to intervals
-        laserBinned = pd.cut(pulseLaserData, intervals)
+        laserBinned = pd.cut(pulseLaserData, bins)
         # group actual data using sorted indices
         pulseLaserData = pulseLaserData.groupby(laserBinned)
         pulseTofData = pulseTofData.groupby(laserBinned)
@@ -66,7 +69,7 @@ def laserIntBin(tofData, laserData, bins=10):
     # create new MultiIndex including bunch
     index = []
     for i in tofData.index.levels[0].values:
-        for j in intervals:
+        for j in bins:
             index.append([i, j])
     index = pd.MultiIndex.from_arrays(np.array(index).transpose(), names=["pulseId", "bins"])
 
@@ -134,5 +137,6 @@ if __name__ == '__main__':
     idx.close()
     tr.close()
 
-    data = laserIntNorm(data,param)
-    data, param = laserIntBin(data, param, bins=10)
+    #data = laserIntNorm(data,param)
+    intervals = pd.interval_range(start=10, end=60, periods=10)
+    data, param = laserIntBin(data, param, bins=intervals)
