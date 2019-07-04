@@ -8,19 +8,19 @@ from attrdict import AttrDict
 from numba import cuda
 import cupy as cp
 
-from utils import evConverter
+from utils import mainTofEvConv
 from utils import filterPulses
 
 cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
-                          'index'    : 'index_BAM.h5',
-                          'trace'    : 'first_block_BAM.h5'
+                          'index'    : 'index.h5',
+                          'trace'    : 'first_block.h5'
                         },
            'time'     : { 'start' : datetime(2019,3,26,20,59,0).timestamp(),
                           'stop'  : datetime(2019,3,26,21,53,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (270,271),
                           'retarder'    : (-81,-79),
-                          'waveplate'   : (8,11)
+                          'waveplate'   : (7,11)
                         },
            'delaybins': np.arange(1175,1179,0.01)
       }
@@ -44,7 +44,6 @@ shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId 
 pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 #Remove unpumped pulses
 shotsData = shotsData.query('shotNum % 2 == 0')
-
 
 #Define CUDA kernel for delay adjustment
 @cuda.jit
@@ -90,7 +89,6 @@ binCount = np.zeros( len(bins) )
 for counter, chunk in enumerate(shotsTof):
     print( f"loading chunk {counter}", end='\r' )
     shotsDiff = getDiff(chunk)
-
     for binId, bin in enumerate(bins):
         name, group = bin
         try:
@@ -101,12 +99,12 @@ for counter, chunk in enumerate(shotsTof):
 
 #average all chunks, counter + 1 is the total number of chunks we loaded
 print()
-print(counter)
 img /= binCount[:,None]
 delays = np.array( [name.mid for name, _ in bins] )
-
 #plot resulting image
-plt.pcolor(shotsDiff.iloc[0].index + 80, delays ,img, cmap='bwr')
+evConv = mainTofEvConv(pulses.retarder.mean())
+
+plt.pcolor(evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32)), delays ,img, cmap='bwr')
 
 plt.figure()
 plt.plot(delays, img.T[830:860].sum(axis=0))

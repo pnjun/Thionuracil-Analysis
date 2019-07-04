@@ -7,9 +7,9 @@ from attrdict import AttrDict
 
 from utils import evConverter
 
-cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',     
+cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'first_block.h5' #'71001915-71071776.h5' #'first block.h5' 
+                          'trace'    : 'first_block.h5' #'71001915-71071776.h5' #'first block.h5'
                         }
       }
 cfg = AttrDict(cfg)
@@ -29,7 +29,7 @@ retarder = pulse.retarder.mean()
 data = tr.select('shotsTof', where='pulseId >= pulse.index[0] and pulseId < pulse.index[-1]')
 data = data.mean()
 
-plt.plot(data.index - retarder, data)
+plt.plot(data.index, data)
 plt.show()
 
 idx.close()
