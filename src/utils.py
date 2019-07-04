@@ -51,18 +51,46 @@ class evConverter:
             else:                         #acceleration before MCP
                 return -evOffset + mcp
         #retarder is negative! => we want electron energies above -retarder [eV]
-        return cls(potential, 1.787, -retarder+evOffset+2, -retarder+evOffset+350, 2)
-
+        return cls(potential, 1.787, -retarder+evOffset+2, -retarder+evOffset+350, 1)
 
     def __call__(self, tof):
         return self.interpolator(tof)
 
+    @np.vectorize
     def ev2tof(self, e):
         return integ.quad( lambda x : self._integrand(x,e), 0, self.l)[0]
 
     def _integrand(self, x, en):
         m_over_e = 5.69
-        return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!
+        return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!'''
+
+class mainTofEvConv:
+    ''' Converts between tof and Ev for main chamber TOF spectrometer
+    '''
+    def __init__(self, retarder):
+        self.r = retarder
+
+        evMin = -retarder
+        evMax = -retarder + 350
+
+        evRange = np.arange(evMin, evMax, 1)
+        tofVals = self.ev2tof( evRange )
+        self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
+
+    def __call__(self, tof):
+        return self.interpolator(tof)
+
+    def ev2tof(self, e):
+        #Parameters for evConversion
+        evOffset = 0.6 #eV
+        l1 = 0.05      #meters
+        l2 = 1.734     #meters
+        l3 = 0.003
+        m_over_2e = 5.69 / 2
+
+        e += evOffset
+        return np.sqrt(m_over_2e) * ( l1 / np.sqrt(e) + l2 / np.sqrt(e + self.r) + l3 / np.sqrt(e + 300) )
+
 
 
 class Slicer:

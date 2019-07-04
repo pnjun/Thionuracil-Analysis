@@ -26,12 +26,12 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
-                          'files'    : 'FLASH2_USER1-2019-03-2*.h5' # 'FLASH2_USER1-2019-0?-[^2][^456]*.h5' ['FLASH2_USER1-2019-03-25T1115.h5'],  List of files to process or globbable string. All files must have the same number of shots
+                          'files'    : 'FLASH2_USER1-2019-0?-[30][0123789]*.h5',#'FLASH2_USER1-2019-03-2*.h5' ['FLASH2_USER1-2019-03-25T1115.h5'],  List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : {
                           'folder'      : '/media/Data/Beamtime/processed/',
                           'pulsefname'  : 'index.h5',
-                          'shotsfname'  : 'first_block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.
+                          'shotsfname'  : 'second_block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.
                         },
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -59,7 +59,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
                                         },
                         },
 
-           'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'chunkSize': 2000 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 cfg = AttrDict(cfg)
 
@@ -72,9 +72,10 @@ def main():
 
     flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
     flist = sorted(flist)
-    print("processing %d files" % len(flist))
+
+    print(f"processing {len(flist)} files")
     for fname in flist:
-        print("Opening %s" % fname)
+        print(f"Opening {fname}")
         with h5py.File( fname ) as dataf:
             #Dataframe for macrobunch info
             pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'),
