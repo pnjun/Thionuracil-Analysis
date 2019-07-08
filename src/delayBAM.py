@@ -15,14 +15,14 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'first_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,20,59,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,21,53,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,27,0,30,0).timestamp(),
+                          'stop'  : datetime(2019,3,27,1,30,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (270,271),
                           'retarder'    : (-81,-79),
                           'waveplate'   : (7,11)
                         },
-           'delaybins': np.arange(1175,1179,0.01)
+           'delayBinStep': 0.2
       }
 cfg = AttrDict(cfg)
 
@@ -56,14 +56,26 @@ delay = cp.array(pulses.delay.values)
 shiftBAM[pulses.shape[0], shotsData.index.levels[1].shape[0] // 2](bam,delay)
 shotsData['delay'] = bam.get()
 
+#Show histogram and get center point for binning
 shotsData.delay.hist(bins=100)
+def getBinStart(event):
+    global binStart
+    binStart = event.xdata
+def getBinEnd(event):
+    global binEnd
+    binEnd = event.xdata
+    plt.close(event.canvas.figure)
+plt.gcf().suptitle("Drag over ROI for binning")
+plt.gcf().canvas.mpl_connect('button_press_event', getBinStart)
+plt.gcf().canvas.mpl_connect('button_release_event', getBinEnd)
 plt.show()
 plt.plot()
 
 print(f"Loading {shotsData.shape[0]} shots")
+print(f"Binning interval {binStart} : {binEnd}")
 
 #Bin data on delay
-bins = shotsData.groupby( pd.cut( shotsData.delay, cfg.delaybins ) )
+bins = shotsData.groupby( pd.cut( shotsData.delay, np.arange(binStart, binEnd, cfg.delayBinStep) ) )
 
 #Gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
 def getDiff(tofTrace):
@@ -91,11 +103,11 @@ for counter, chunk in enumerate(shotsTof):
     shotsDiff = getDiff(chunk)
     for binId, bin in enumerate(bins):
         name, group = bin
-        try:
-            img[binId] += shotsDiff.reindex(group.index).mean()
+        binTrace = shotsDiff.reindex(group.index).mean()
+        if not binTrace.isnull().to_numpy().any():
+            img[binId] += binTrace
             binCount[binId] += 1
-        except KeyError:
-            pass
+
 
 #average all chunks, counter + 1 is the total number of chunks we loaded
 print()
@@ -108,7 +120,7 @@ plt.pcolor(evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32)), delays ,i
 
 plt.figure()
 plt.plot(delays, img.T[830:860].sum(axis=0))
-
+plt.savefig('output')
 plt.show()
 
 
