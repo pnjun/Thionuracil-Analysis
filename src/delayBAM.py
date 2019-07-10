@@ -24,8 +24,9 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
                           'retarder'    : (-81,-79),
                           'waveplate'   : (15,25)
                         },
-           'delayBinStep': 0.025,
-           'ioChunkSize' : 200000
+           'delayBinStep': 0.05,
+           'ioChunkSize' : 200000,
+           'gmdNormalize': True
       }
 cfg = AttrDict(cfg)
 
@@ -61,6 +62,11 @@ def closeFigs(event):
 f1.canvas.mpl_connect('key_press_event', closeFigs)
 f2.canvas.mpl_connect('key_press_event', closeFigs)
 plt.show()
+
+if cfg.gmdNormalize:
+    gmdData = shotsData.GMD
+else:
+    gmdData = None
 
 #Remove unpumped pulses
 shotsData = shotsData.query('shotNum % 2 == 0')
@@ -103,19 +109,30 @@ print(f"Binning interval {binStart} : {binEnd}")
 bins = shotsData.groupby( pd.cut( shotsData.delay, np.arange(binStart, binEnd, cfg.delayBinStep) ) )
 
 #Function that gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
-def getDiff(tofTrace):
+#If GMD is not None traces are normalized on gmd before difference calculation
+def getDiff(tofTrace, gmd = None):
     #Cuda kernel for pump probe difference calculation
     @cuda.jit
     def tofDiff(tof):
         row = 2 * cuda.blockIdx.x
         col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
-        # if gmd:
-        #     tof[ row    , col ]  /= gmd[row]
-        #     tof[ row + 1, col ]  /= gmd[row + 1]
         tof[ row, col ] -= tof[ row + 1, col ]
+    @cuda.jit
+    def tofDiffGMD(tof, gmd):
+        row = 2 * cuda.blockIdx.x
+        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
+        tof[ row    , col ]  /= gmd[row]
+        tof[ row + 1, col ]  /= gmd[row + 1]
+        tof[ row, col ] -= tof[ row + 1, col ]
+
     #Get difference data
     tof = cp.array(tofTrace.to_numpy())
-    tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof)
+    if gmd is not None:
+        #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
+        cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
+        tofDiffGMD[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof, cuGmd)
+    else:
+        tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof)
     return pd.DataFrame( tof[::2].get(), index = tofTrace.index[::2], columns=tofTrace.columns)
 
 #Read in TOF data and calulate difference, in chunks
@@ -129,7 +146,7 @@ binCount = np.zeros( len(bins) )
 #Iterate over data chunks and accumulate them in img
 for counter, chunk in enumerate(shotsTof):
     print( f"loading chunk {counter}", end='\r' )
-    shotsDiff = getDiff(chunk)
+    shotsDiff = getDiff(chunk, gmdData)
     for binId, bin in enumerate(bins):
         name, group = bin
         binTrace = shotsDiff.reindex(group.index).mean()
@@ -138,20 +155,21 @@ for counter, chunk in enumerate(shotsTof):
             binCount[binId] += 1
 
 #average all chunks, counter + 1 is the total number of chunks we loaded
-img[np.isnan(img)] = 0
 img /= binCount[:,None]
+#get axis labels
 delays = np.array( [name.mid for name, _ in bins] )
-#plot resulting image
 evConv = mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
-cmax = np.abs(img).max()*0.75
+#plot resulting image
+cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.75
 print(cmax)
-plt.pcolor(evs, delays ,img, cmap='bwr')#, vmax=750, vmin=-750)
+plt.pcolor(evs, delays ,img, cmap='bwr', vmax=cmax, vmin=-cmax)
 
+#plot liner graph of integral over photoline
 plt.figure()
 #photoline = slice(820,877)
-photoline = slice( np.abs(evs - 106).argmin() , np.abs(evs - 103.5).argmin() )
+photoline = slice( np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin() )
 plt.plot(delays, img.T[photoline].sum(axis=0))
 valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin() )
 plt.plot(delays, img.T[valence].sum(axis=0))
