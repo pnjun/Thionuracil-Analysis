@@ -165,7 +165,8 @@ evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.75
 print(cmax)
 plt.pcolor(evs, delays ,img, cmap='bwr', vmax=cmax, vmin=-cmax)
-
+plt.savefig('output')
+#plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
 #plot liner graph of integral over photoline
 plt.figure()
 #photoline = slice(820,877)
@@ -173,8 +174,6 @@ photoline = slice( np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin() )
 plt.plot(delays, img.T[photoline].sum(axis=0))
 valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin() )
 plt.plot(delays, img.T[valence].sum(axis=0))
-plt.savefig('output')
-#plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
 plt.show()
 
 idx.close()
