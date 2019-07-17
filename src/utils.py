@@ -20,6 +20,35 @@ def filterPulses(pulses, filters):
     queryExpr = " and ".join(queryList)
     return pulses.query(queryExpr)
 
+
+class mainTofEvConv:
+    ''' Converts between tof and Ev for main chamber TOF spectrometer
+    '''
+    def __init__(self, retarder):
+        self.r = retarder
+
+        evMin = -retarder
+        evMax = -retarder + 350
+
+        evRange = np.arange(evMin, evMax, 1)
+        tofVals = self.ev2tof( evRange )
+        self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
+
+    def __call__(self, tof):
+        return self.interpolator(tof)
+
+    def ev2tof(self, e):
+        #Parameters for evConversion
+        evOffset = 0.6 #eV
+        l1 = 0.05      #meters
+        l2 = 1.734     #meters
+        l3 = 0.003
+        m_over_2e = 5.69 / 2
+
+        e += evOffset
+        return np.sqrt(m_over_2e) * ( l1 / np.sqrt(e) + l2 / np.sqrt(e + self.r) + l3 / np.sqrt(e + 300) )
+
+
 class evConverter:
     ''' Converts between tof and ev for a given retardation voltage
         Units are volts, electronvolts and microseconds
@@ -28,6 +57,7 @@ class evConverter:
         or the OPIS tofs
     '''
     def __init__(self, retarder, lenght, evMin, evMax, evStep):
+        print("# WARNING: evConverter is deprecated and will be removed. Use mainTofEvConv")
         self.r = retarder
         self.l = lenght
 
@@ -63,34 +93,6 @@ class evConverter:
     def _integrand(self, x, en):
         m_over_e = 5.69
         return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!'''
-
-class mainTofEvConv:
-    ''' Converts between tof and Ev for main chamber TOF spectrometer
-    '''
-    def __init__(self, retarder):
-        self.r = retarder
-
-        evMin = -retarder
-        evMax = -retarder + 350
-
-        evRange = np.arange(evMin, evMax, 1)
-        tofVals = self.ev2tof( evRange )
-        self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
-
-    def __call__(self, tof):
-        return self.interpolator(tof)
-
-    def ev2tof(self, e):
-        #Parameters for evConversion
-        evOffset = 0.6 #eV
-        l1 = 0.05      #meters
-        l2 = 1.734     #meters
-        l3 = 0.003
-        m_over_2e = 5.69 / 2
-
-        e += evOffset
-        return np.sqrt(m_over_2e) * ( l1 / np.sqrt(e) + l2 / np.sqrt(e + self.r) + l3 / np.sqrt(e + 300) )
-
 
 
 class Slicer:
