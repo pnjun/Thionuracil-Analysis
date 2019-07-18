@@ -89,36 +89,36 @@ def fit_func(x, C, A0,x0,d0,A1,x1,d1,A2,x2,d2,A3,x3,d3,A4,x4,d4,A5,x5,d5,
 			)
 len_fit = 10
 
-par =	(	5.1, 0.1, 255.0, 0.2,
-		0.1, 240.0, 0.2,
-		0.1, 230.0, 0.2,
+par =	(	5.1, 0.02, 255.0, 0.2,
+		0.02, 240.0, 0.2,
+		0.02, 230.0, 0.2,
 		0.1, 170.0, 0.2,
 		0.1, 145.0, 0.3,
 		0.1, 105.0, 0.1
 		)
 
 
-bnd_low =[4.0, 0.06, 250., 2.0,
-		0.06, 225., 2.0,
-		0.06, 210., 1.0,
+bnd_low =[4.0, 0.01, 250., 5.0,
+		0.01, 225., 2.0,
+		0.01, 210., 2.0,
 		0.006, 180., 4.0,
 		0.006, 160., 1.0,
-		0.006, 137., 1.0,
-		0.006, 115., 1.0,
+		0.006, 137., 3.0,
+		0.006, 115., 7.0,
 		0.006, 103., 1.0,
-		0.006, 95., 1.0,
-		0.006, 84., 1.0]
+		0.006, 87., 1.0,
+		0.006, 83., 1.0]
 
-bnd_up = [5.75, 100.0, 270., 15.,
+bnd_up = [5.65, 100.0, 265., 20.,
 		100.0, 245., 15.,
 		100.0, 220., 15.,
 		100.0, 190., 10.,
-		100.0, 175., 20.,
+		100.0, 175., 15.,
 		100.0, 150., 7.,
 		100.0, 135., 15.,
 		100.0, 110., 5.,
-		100.0, 102., 4.,
-		100.0, 94., 4.]
+		100.0, 95., 6.,
+		100.0, 86., 4.]
 bnd = (bnd_low, bnd_up)
 
 
@@ -127,6 +127,7 @@ bnd = (bnd_low, bnd_up)
 amplitudes = [[] for x in range(len_fit)]
 centers = [[] for x in range(len_fit)]
 widths = [[] for x in range(len_fit)]
+wavelength = []
 
 time1 = time.time() - start_time
 print("time1--- %s seconds ---" % (time1))
@@ -138,6 +139,7 @@ for i in range(length):
 
 	### list of macrobunch indices
 	pulse = idx.select('pulses', where='time >= start[i] and time < stop[i]')
+	opis = idx.select('opisEV', where = 'pulseId >= pulse.index[0] and pulseId < pulse.index[-1]')
 	#print("pulse:", pulse)
 	
 	### shotsData, not used here
@@ -147,6 +149,7 @@ for i in range(length):
 	data = tr.select('shotsTof', where='pulseId >= pulse.index[0] and pulseId < pulse.index[-1]')
 	#print(data)
 	e_data = data.mean() * (-1)
+	wavelength.appen(opis.mean())
 
 	###averaged retarder
 	tr_retarder= pulse.retarder.mean()
@@ -181,6 +184,12 @@ print("time2--- %s seconds---" % (time2))
 print(i)
 fignum = i+1
 #print("length of params:", len(params))
+
+
+plt.figure(fignum)
+wavelgth = plt.plot(wavelength, label = 'wavelength')
+plt.legend()
+fignum +=1
 
 plt.figure(fignum)
 
