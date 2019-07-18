@@ -139,7 +139,15 @@ for i in range(length):
 
 	### list of macrobunch indices
 	pulse = idx.select('pulses', where='time >= start[i] and time < stop[i]')
-	opis = idx.select('opisEV', where = 'pulseId >= pulse.index[0] and pulseId < pulse.index[-1]')
+	opis = pulse.opisEV
+	opis = opis.replace(0.0, np.NAN)
+	print("opis min:", min(opis))
+	print("Opis max:", max(opis))
+	
+	if i == 1:
+		plt.figure(1000)
+		plt.plot(opis, label = 'opis')
+		plt.legend
 	#print("pulse:", pulse)
 	
 	### shotsData, not used here
@@ -149,7 +157,8 @@ for i in range(length):
 	data = tr.select('shotsTof', where='pulseId >= pulse.index[0] and pulseId < pulse.index[-1]')
 	#print(data)
 	e_data = data.mean() * (-1)
-	wavelength.appen(opis.mean())
+	wavelength.append(opis.mean())
+	print(wavelength)
 
 	###averaged retarder
 	tr_retarder= pulse.retarder.mean()
@@ -209,10 +218,17 @@ time3 = time.time() - time2 - start_time
 print("time 3--- %s seconds---" % (time3))
 
 plt.figure(fignum)
-
 cent0 = plt.plot(centers[0], label = 'center0')
-cent1 = plt.plot(centers[1], label = 'center1')
-cent2 = plt.plot(centers[2], label = 'center2')
+cent0 = plt.plot(centers[1], label = 'center0')
+cent0 = plt.plot(centers[2], label = 'center0')
+plt.title("Centers 0 to 2")
+plt.legend()
+fignum +=1
+
+plt.figure(fignum)
+cent0 = plt.plot([a - b for a,b in zip (centers[0],wavelength[:])], label = 'center0')
+cent1 = plt.plot([a - b for a,b in zip (centers[1],wavelength[:])], label = 'center1')
+cent2 = plt.plot([a - b for a,b in zip (centers[2],wavelength[:])], label = 'center2')
 plt.title("Centers 0 to 2")
 plt.legend()
 fignum +=1
