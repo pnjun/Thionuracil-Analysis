@@ -113,7 +113,7 @@ if __name__ == '__main__':
     shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]', 'pulseId in pulses.index'] )[cfg.hdf.param]
     #Remove pulses with no corresponing shots
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
-    
+    """
     # some analysis on gmd
     print("do some stuff with GMD data.", end="\r")    
     shotsMean = np.array([shotsData.loc[bunch].mean() for bunch in shotsData.index.levels[0].values])
@@ -127,7 +127,7 @@ if __name__ == '__main__':
     plt.tight_layout()
     print("                               ", end="\r")
     print("done with gmd stuff.", end="\r")
-    
+    """
     # go for tof data
     intervals = pd.interval_range(start=0, end=125, freq=1.)
     shotsTof  = tr.select('shotsTof', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
@@ -140,9 +140,9 @@ if __name__ == '__main__':
         c = 0
         print( f"processing chunk {counter}", end='\r' )
         idx = chunk.index.levels[0].values
-        #shotsnorm = gmdNorm(chunk, gmd.loc[idx])
+        shotsnorm = normToGmd(chunk, shotsData.loc[idx])
         shotsBins = pd.cut(shotsData.loc[idx], intervals)
-        tofs = pd.DataFrame(chunk.groupby(shotsBins).mean().to_numpy())
+        tofs = pd.DataFrame(shotsnorm.groupby(shotsBins).mean().to_numpy())
         for group in range(tofs.index.size):
             if not tofs.loc[group].isnull().to_numpy().any():
                 img[c] += tofs.loc[group].to_numpy()
@@ -178,7 +178,7 @@ if __name__ == '__main__':
     #ax2[1].plot(ind3, np.polyval(p3, ind3), "g-")
 
     ax2[1].set_xlabel("GMD (µJ)")
-    ax2[1].set_ylabel("Average signal (arb.units)")
+    ax2[1].set_ylabel("Summed signal (arb.units)")
     ax2[1].legend()
 
     plt.tight_layout()
