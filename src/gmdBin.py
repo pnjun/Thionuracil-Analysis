@@ -113,7 +113,7 @@ if __name__ == '__main__':
     shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]', 'pulseId in pulses.index'] )[cfg.hdf.param]
     #Remove pulses with no corresponing shots
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
-    """
+    
     # some analysis on gmd
     print("do some stuff with GMD data.", end="\r")    
     shotsMean = np.array([shotsData.loc[bunch].mean() for bunch in shotsData.index.levels[0].values])
@@ -127,7 +127,7 @@ if __name__ == '__main__':
     plt.tight_layout()
     print("                               ", end="\r")
     print("done with gmd stuff.", end="\r")
-    """
+    
     # go for tof data
     intervals = pd.interval_range(start=0, end=125, freq=1.)
     shotsTof  = tr.select('shotsTof', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
