@@ -116,7 +116,7 @@ if __name__ == '__main__':
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
     
     # some analysis on gmd
-    print("do some stuff with GMD data.")    
+    print("do some stuff with GMD data.")
     shotsMean = np.array([shotsData.loc[bunch].mean() for bunch in shotsData.index.levels[0].values])
 
     f1, ax1 = plt.subplots(1,3, figsize=(13,5))
@@ -139,7 +139,7 @@ if __name__ == '__main__':
     print("done with that stuff.")
     
     # go for tof data
-    intervals = pd.interval_range(start=0, end=125, freq=1.)
+    intervals = pd.interval_range(start=0, end=125, freq=1.) # bins for gmd
     shotsTof  = tr.select('shotsTof', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
                                              'pulseId in pulses.index'],
                                       iterator=True, chunksize=cfg.ioChunkSize)
@@ -150,9 +150,9 @@ if __name__ == '__main__':
         c = 0
         print( f"processing chunk {counter}", end='\r' )
         idx = chunk.index.levels[0].values
-        shotsnorm = normToGmd(chunk, shotsData.loc[idx])
-        shotsBins = pd.cut(shotsData.loc[idx], intervals)
-        tofs = pd.DataFrame(shotsnorm.groupby(shotsBins).mean().to_numpy())
+        shotsnorm = normToGmd(chunk, shotsData.loc[idx]) # normalise chunk on corresponding gmd values
+        shotsBins = pd.cut(shotsData.loc[idx], intervals) # sort gmd data according to intervals
+        tofs = pd.DataFrame(shotsnorm.groupby(shotsBins).mean().to_numpy()) # bin tof data based on sorted gmd data
         for group in range(tofs.index.size):
             if not tofs.loc[group].isnull().to_numpy().any():
                 img[c] += tofs.loc[group].to_numpy()
@@ -162,7 +162,7 @@ if __name__ == '__main__':
     img /= binCount[:,None]
     bg = np.array([np.mean(i[-50:-1]) for i in img])
     img -= bg[:,None]
-    
+        
     gmdBins = shotsData.groupby(pd.cut(shotsData, intervals)).mean()
     tofs = tr.select("shotsTof", where=["pulseId == pulsesLims[0]", "pulseId in pulses.index"]).columns
     tr.close()
@@ -171,13 +171,14 @@ if __name__ == '__main__':
     evs = evConv(tofs.to_numpy(dtype=np.float64))
 
     img = pd.DataFrame(data=img, index=gmdBins.values, columns=evs, dtype="float64").dropna()
+    cmax = np.max(abs(img.values))*0.5
 
     r1 = do_sum_stuff(img, [70,350], lim=60.)
     r2 = do_sum_stuff(img, [360,780], lim=50.)
     r3 = do_sum_stuff(img, [790,1100], lim=40.)
     f2, ax2 = plt.subplots(1,2, figsize=(9,4))
 
-    ax2[0].pcolormesh(img.columns.values, img.index.values,img, cmap="bwr", vmax=30, vmin=-30)
+    ax2[0].pcolormesh(img.columns.values, img.index.values,img, cmap="bwr", vmax=cmax, vmin=-cmax)
     ax2[0].set_xlabel("kinetic energy (ev)")
     ax2[0].set_ylabel("GMD (µJ)")
     ax2[1].plot(r1.index.values, r1*15, "b.", label="1 (x15)")
