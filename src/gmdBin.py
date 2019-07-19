@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 from datetime import datetime
 from attrdict import AttrDict
 
@@ -24,7 +25,7 @@ cfg = { 'data'    : { 'path'   : '/media/Fast1/ThioUr/processed/',
                       'photon' : '/shotsData'},
         'time'    : { 'start' : datetime(2019,3,25,21,27,0).timestamp(),
                       'stop'  : datetime(2019,3,25,23,38,0).timestamp()},
-        'filters' : { 'undulatorEV' : (270,271),
+        'filters' : { 'opisEV' : (268,274),
                       'retarder'    : (-81,-79)},
         'ioChunkSize' : 25000
       }
@@ -115,18 +116,27 @@ if __name__ == '__main__':
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
     
     # some analysis on gmd
-    print("do some stuff with GMD data.", end="\r")    
+    print("do some stuff with GMD data.")    
     shotsMean = np.array([shotsData.loc[bunch].mean() for bunch in shotsData.index.levels[0].values])
 
-    f1, ax1 = plt.subplots(1,3, figsize=(12,4))
-    ax1[0].plot(shotsMean,lw=1)
-    shotsData.hist(bins=125, ax=ax1[1]) 
-
+    f1, ax1 = plt.subplots(1,3, figsize=(13,5))
+    #plt.title("GMD data from\n{0} - {1}".format(datetime.fromtimestamp(cfg.time.start).isoformat(), datetime.fromtimestamp(cfg.time.stop).isoformat()))
+    ax1[0].plot(pulses.index, shotsMean,lw=1)
+    ax1[0].set_xlabel("macrobunch number")
+    ax1[0].set_ylabel("x-ray intensity (mean over macrobunch) (µJ)")
+    #ax11 = ax1[0].twinx()
+    #ax11.plot(pulses.index, pulses.opisEV, "C1", lw=1)
+    #ax11.set_ylabel("OPIS (eV)")
+    shotsData.hist(bins=125, ax=ax1[1])
+    ax1[1].set_xlabel("X-ray intensity (µJ)")
+    ax1[1].set_ylabel("# of pulses")
+    ax1[1].yaxis.set_major_formatter(mtick.FormatStrFormatter('%.0e')) 
     shotsBunch = np.array([shotsData.loc[:, pulse].mean() for pulse in range(50)])
     ax1[2].plot(np.linspace(1,51, 50), shotsBunch)
+    ax1[2].set_xlabel("pulse number")
+    ax1[2].set_ylabel("mean x-ray intensity (µJ)")
     plt.tight_layout()
-    print("                               ", end="\r")
-    print("done with gmd stuff.", end="\r")
+    print("done with that stuff.")
     
     # go for tof data
     intervals = pd.interval_range(start=0, end=125, freq=1.)
@@ -180,6 +190,6 @@ if __name__ == '__main__':
     ax2[1].set_xlabel("GMD (µJ)")
     ax2[1].set_ylabel("Summed signal (arb.units)")
     ax2[1].legend()
-
+    
     plt.tight_layout()
     plt.show()
