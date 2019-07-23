@@ -11,18 +11,18 @@ import cupy as cp
 from utils import mainTofEvConv
 from utils import filterPulses
 
-cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
+cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'first_block.h5'
                         },
-          'time'     : { 'start' : datetime(2019,3,26,10,29,0).timestamp(),
-                         'stop'  : datetime(2019,3,26,10,59,0).timestamp(),
-           # 'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
-           #                'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
+          #'time'     : { 'start' : datetime(2019,3,26,15,44,0).timestamp(),
+          #               'stop'  : datetime(2019,3,26,23,54,0).timestamp(),
+            'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
+                           'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
                         },
-           'filters'  : { 'undulatorEV' : (270,271),
+           'filters'  : { 'undulatorEV' : (268,274),
                           'retarder'    : (-81,-79),
-                          'waveplate'   : (15,25)
+                          'waveplate'   : (38,47)
                         },
            'delayBinStep': 0.05,
            'ioChunkSize' : 200000,
@@ -30,8 +30,8 @@ cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
       }
 cfg = AttrDict(cfg)
 
-idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
-tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
+idx = pd.HDFStore(cfg.data.path + cfg.data.index, mode = 'r')
+tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, mode = 'r')
 
 #Get all pulses within time limits
 pulses = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
@@ -149,6 +149,7 @@ for counter, chunk in enumerate(shotsTof):
     shotsDiff = getDiff(chunk, gmdData)
     for binId, bin in enumerate(bins):
         name, group = bin
+        group = group.query("GMD > 2")
         binTrace = shotsDiff.reindex(group.index).mean()
         if not binTrace.isnull().to_numpy().any():
             img[binId] += binTrace
@@ -162,8 +163,7 @@ evConv = mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
 #plot resulting image
-cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.75
-print(cmax)
+cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.1
 plt.pcolor(evs, delays ,img, cmap='bwr', vmax=cmax, vmin=-cmax)
 plt.savefig('output')
 #plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
