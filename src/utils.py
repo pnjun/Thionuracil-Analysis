@@ -23,6 +23,9 @@ def filterPulses(pulses, filters):
 
 class mainTofEvConv:
     ''' Converts between tof and Ev for main chamber TOF spectrometer
+        Usage:
+        converter = mainTofEvConv(retarder)
+        energy = converter(tof)
     '''
     def __init__(self, retarder):
         self.r = retarder
@@ -35,6 +38,8 @@ class mainTofEvConv:
         self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
 
     def __call__(self, tof):
+        if isinstance(tof, pd.Index):
+            tof = tof.to_numpy(dtype=np.float32)
         return self.interpolator(tof)
 
     def ev2tof(self, e):
@@ -47,6 +52,36 @@ class mainTofEvConv:
 
         e += evOffset
         return np.sqrt(m_over_2e) * ( l1 / np.sqrt(e) + l2 / np.sqrt(e + self.r) + l3 / np.sqrt(e + 300) )
+
+class opisEvConv:
+    ''' Converts between tof and Ev for tunnel OPIS TOF spectrometers
+        Usage:
+        converter = opisEvConv()
+        energy = converter[channel](tof)
+    '''
+    def __init__(self):
+        evMin = 150
+        evMax = 350
+
+        params = [[ 1.87851827E+002, -1.71740614E+002, 1.68133279E+004, -1.23094641E+002, 1.85483300E+001 ],
+                  [ 3.03846564E+002, -1.69947313E+002, 1.62788476E+004, -8.80818471E+001, 9.88444848E+000 ],
+                  [ 2.13931606E+002, -1.71492500E+002, 1.61927408E+004, -1.18796787E+002, 1.66342468E+001 ],
+                  [ 2.90336251E+002, -1.69942322E+002, 1.44589453E+004, -1.00972976E+002, 1.10047737E+001 ]]
+
+        evRange = np.arange(evMin, evMax, 1)
+        tofVals = [ self.ev2tof( channel, evRange ) for channel in params ]
+        print(tofVals[1])
+        self.interpolators = [ interpolate.interp1d(tof, evRange, kind='linear') for tof in tofVals ]
+
+    def __getitem__(self, channel):
+        def foo(tof):
+            if isinstance(tof, pd.Index):
+                tof = tof.to_numpy(dtype=np.float32)
+            return self.interpolators[channel](tof)
+        return foo
+
+    def ev2tof(self, p, e):
+        return p[4] + p[0] / np.sqrt(e + p[1]) + p[2] / ( e + p[3] )**1.5
 
 
 class evConverter:
@@ -101,6 +136,7 @@ class Slicer:
         '''
         Prepares a list of indexes for tof trace slicing
         self.slices is a list of np.ranges, each one corresponding to a slice
+        If params contais a 'dt' key, results are indexed by time of flight
         '''
         shotsCuts = (sliceParams.offset + sliceParams.skipNum + ( sliceParams.period * np.arange(sliceParams.shotsNum) )).astype(int)
 
@@ -146,3 +182,9 @@ def Tof2eV(self, tof):
     m_over_e = 5.69
     # UNITS AND ORDERS OF MAGNITUDE DO CHECK OUT
     return 0.5 * m_over_e * ( s / ( tof ) )**2
+
+
+if __name__ == "__main__":
+    conv = opisEvConv()
+    tof = np.arange(30, 40, 0.1)
+    print(conv[1](tof))
