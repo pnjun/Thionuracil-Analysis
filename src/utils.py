@@ -89,51 +89,6 @@ class opisEvConv:
     def ev2tof(self, p, e):
         return (  p[4] + p[0] / np.sqrt(e + p[1]) + p[2] / ( e + p[3] )**1.5 ) / 1000
 
-class evConverter:
-    ''' Converts between tof and ev for a given retardation voltage
-        Units are volts, electronvolts and microseconds
-        Retarder must be a vectorized callable with the lenght and maxV attributes.
-        Use the classmethods to create a converted already calibrated for the main tof
-        or the OPIS tofs
-    '''
-    def __init__(self, retarder, lenght, evMin, evMax, evStep):
-        print("# WARNING: evConverter is deprecated and will be removed. Use mainTofEvConv")
-        self.r = retarder
-        self.l = lenght
-
-        evRange = np.arange(evMin, evMax, evStep)
-        tofVals = [ self.ev2tof(ev) for ev in evRange ]
-        self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
-
-    @classmethod
-    def mainTof(cls, retarder, mcp = None, evOffset = 0.6):
-        ''' Defines the potential model for the TOF spectrometer
-            offset is a global 'retardation' we apply for absolutely no reason
-            except that it makes the calibration better.
-        '''
-        if mcp is None: mcp = retarder
-
-        def potential(x):
-            if   x < 0.05:               #free flight before retarder lens
-                return -evOffset
-            elif x < 1.784:               #flight inside tube
-                return -evOffset + retarder
-            else:                         #acceleration before MCP
-                return -evOffset + mcp
-        #retarder is negative! => we want electron energies above -retarder [eV]
-        return cls(potential, 1.787, -retarder+evOffset+2, -retarder+evOffset+350, 1)
-
-    def __call__(self, tof):
-        return self.interpolator(tof)
-
-    def ev2tof(self, e):
-        return integ.quad( lambda x : self._integrand(x,e), 0, self.l)[0]
-
-    def _integrand(self, x, en):
-        m_over_e = 5.69
-        return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!'''
-
-
 class Slicer:
     ''' Splits a ADC trace into slices given a set of slicing parameters '''
     def __init__(self, sliceParams, removeBg = False):
@@ -178,14 +133,49 @@ class Slicer:
         except ValueError:
             return None
 
-def Tof2eV(self, tof):
-    ''' converts time of flight into ectronvolts '''
-    # Constants for conversion:
-    tof *= self.tof2ev.dt
-    s = self.tof2ev.len
-    m_over_e = 5.69
-    # UNITS AND ORDERS OF MAGNITUDE DO CHECK OUT
-    return 0.5 * m_over_e * ( s / ( tof ) )**2
+class evConverter:
+    ''' Converts between tof and ev for a given retardation voltage
+        Units are volts, electronvolts and microseconds
+        Retarder must be a vectorized callable with the lenght and maxV attributes.
+        Use the classmethods to create a converted already calibrated for the main tof
+        or the OPIS tofs
+    '''
+    def __init__(self, retarder, lenght, evMin, evMax, evStep):
+        print("# WARNING: evConverter is deprecated and will be removed. Use mainTofEvConv")
+        self.r = retarder
+        self.l = lenght
+
+        evRange = np.arange(evMin, evMax, evStep)
+        tofVals = [ self.ev2tof(ev) for ev in evRange ]
+        self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
+
+    @classmethod
+    def mainTof(cls, retarder, mcp = None, evOffset = 0.6):
+        ''' Defines the potential model for the TOF spectrometer
+            offset is a global 'retardation' we apply for absolutely no reason
+            except that it makes the calibration better.
+        '''
+        if mcp is None: mcp = retarder
+
+        def potential(x):
+            if   x < 0.05:               #free flight before retarder lens
+                return -evOffset
+            elif x < 1.784:               #flight inside tube
+                return -evOffset + retarder
+            else:                         #acceleration before MCP
+                return -evOffset + mcp
+        #retarder is negative! => we want electron energies above -retarder [eV]
+        return cls(potential, 1.787, -retarder+evOffset+2, -retarder+evOffset+350, 1)
+
+    def __call__(self, tof):
+        return self.interpolator(tof)
+
+    def ev2tof(self, e):
+        return integ.quad( lambda x : self._integrand(x,e), 0, self.l)[0]
+
+    def _integrand(self, x, en):
+        m_over_e = 5.69
+        return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!'''
 
 
 if __name__ == "__main__":
