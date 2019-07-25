@@ -60,18 +60,22 @@ class opisEvConv:
         energy = converter[channel](tof)
     '''
     def __init__(self):
-        evMin = 150
         evMax = 350
 
-        params = [[ 1.87851827E+002, -1.71740614E+002, 1.68133279E+004, -1.23094641E+002, 1.85483300E+001 ],
+        params = np.array(
+                 [[ 1.87851827E+002, -1.71740614E+002, 1.68133279E+004, -1.23094641E+002, 1.85483300E+001 ],
                   [ 3.03846564E+002, -1.69947313E+002, 1.62788476E+004, -8.80818471E+001, 9.88444848E+000 ],
                   [ 2.13931606E+002, -1.71492500E+002, 1.61927408E+004, -1.18796787E+002, 1.66342468E+001 ],
-                  [ 2.90336251E+002, -1.69942322E+002, 1.44589453E+004, -1.00972976E+002, 1.10047737E+001 ]]
+                  [ 2.90336251E+002, -1.69942322E+002, 1.44589453E+004, -1.00972976E+002, 1.10047737E+001 ]])
 
-        evRange = np.arange(evMin, evMax, 1)
-        tofVals = [ self.ev2tof( channel, evRange ) for channel in params ]
-        print(tofVals[1])
-        self.interpolators = [ interpolate.interp1d(tof, evRange, kind='linear') for tof in tofVals ]
+        # generate ev ranges for each channel depeding on their retarder setting
+        # (retarder is second column of params )
+        evRanges = [ np.arange(-evMin+1e-3, evMax, 1) for evMin in params[:,1] ]
+        # Calculate correspoiding TOFS for interpolation
+        tofVals  = [ self.ev2tof( channel, evRange ) for channel, evRange in zip(params, evRanges) ]
+        # Initialize interpolators
+        self.interpolators = [ interpolate.interp1d(tof, evRange, kind='linear') \
+                               for tof, evRange in zip(tofVals, evRanges) ]
 
     def __getitem__(self, channel):
         def foo(tof):
@@ -81,8 +85,7 @@ class opisEvConv:
         return foo
 
     def ev2tof(self, p, e):
-        return p[4] + p[0] / np.sqrt(e + p[1]) + p[2] / ( e + p[3] )**1.5
-
+        return (  p[4] + p[0] / np.sqrt(e + p[1]) + p[2] / ( e + p[3] )**1.5 ) / 1000
 
 class evConverter:
     ''' Converts between tof and ev for a given retardation voltage
@@ -186,5 +189,5 @@ def Tof2eV(self, tof):
 
 if __name__ == "__main__":
     conv = opisEvConv()
-    tof = np.arange(30, 40, 0.1)
+    tof = np.arange(0.048, 0.244, 0.01)
     print(conv[1](tof))
