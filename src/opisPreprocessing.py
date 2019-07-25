@@ -103,7 +103,7 @@ def main():
                 shots1 = opisSlicer1( dataf[cfg.hdf.opisTr1][sl], pulses[sl])
                 shots2 = opisSlicer2( dataf[cfg.hdf.opisTr2][sl], pulses[sl])
                 shots3 = opisSlicer3( dataf[cfg.hdf.opisTr3][sl], pulses[sl])
-'''
+                '''
                 #plot one of the traces\
                 import matplotlib.pyplot as plt
                 from utils import opisEvConv
@@ -119,12 +119,13 @@ def main():
                 plt.show()
 
                 exit()'''
-                if shots1 is not None:
-                    fout.append( 'tof0', shots0, format='t' , data_columns=True, append = True )
-                    fout.append( 'tof1', shots1, format='t' , data_columns=True, append = True )
-                    fout.append( 'tof2', shots2, format='t' , data_columns=True, append = True )
-                    fout.append( 'tof3', shots3, format='t' , data_columns=True, append = True )
-
+                try:
+                    fout.append( 'tof0', shots0, format='t' , append = True )
+                    fout.append( 'tof1', shots1, format='t' , append = True )
+                    fout.append( 'tof2', shots2, format='t' , append = True )
+                    fout.append( 'tof3', shots3, format='t' , append = True )
+                except Exception as e:
+                    print(e)
             print()
     fout.close()
 
