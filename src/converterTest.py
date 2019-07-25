@@ -7,9 +7,9 @@ from attrdict import AttrDict
 
 from utils import evConverter, mainTofEvConv
 
-cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/processed/',
-                          'index'    : 'index_BAM.h5',
-                          'trace'    : 'first_block_BAM.h5' #'71001915-71071776.h5' #'first block.h5'
+cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/processed/',
+                          'index'    : 'index_BAM_evIndex.h5',
+                          'trace'    : 'first_block_evIndex.h5' #'71001915-71071776.h5' #'first block.h5'
                         }
       }
 cfg = AttrDict(cfg)
@@ -45,15 +45,16 @@ kr_conv  = evConverter.mainTof(kr_retarder, mcp = 300)
 th1_conv = evConverter.mainTof(th1_retarder, mcp = 300)
 th2_conv = evConverter.mainTof(th2_retarder, mcp = 300)
 
+kr_conv2 = mainTofEvConv(kr_retarder)
+th1_conv2 = mainTofEvConv(th1_retarder)
+
 offset = 6
 tof = ( np.arange(350,3350) + offset ) * 0.0005
 kr_evs = kr_conv(tof)
 th1_evs = th1_conv(tof)
 th2_evs = th2_conv(tof)
 
-kr_conv2 = mainTofEvConv(kr_retarder)
 kr_evs2 = kr_conv2(tof)
-th1_conv2 = mainTofEvConv(th1_retarder)
 th1_evs2 = th1_conv2(tof)
 
 plt.figure()
@@ -82,7 +83,7 @@ plt.gca().set_ylabel('intensity [a.u.]')
 plt.gca().set_xlabel('electron energy [eV]')
 plt.gca().set_title('Thiouracil 0V retardation')
 plt.plot(th1_evs, th1_data)
-
+'''
 plt.figure()
 plt.subplot(211)
 plt.gca().set_xlim([0,300])
@@ -93,6 +94,7 @@ plt.axvline(x=140.8)
 plt.axvline(x=252.0)
 plt.gca().set_title('0V retardation')
 plt.plot(th1_evs, th1_data, label = 'new')
+plt.plot(th1_evs2, th1_data, label = 'new2')
 plt.plot(th1_data.index - th1_retarder, th1_data, label='old')
 plt.legend()
 
@@ -106,8 +108,9 @@ plt.axvline(x=252.0)
 plt.gca().set_title('80V retardation')
 plt.plot(th2_evs, th2_data, label = 'new')
 plt.plot(th2_data.index - th2_retarder, th2_data, label='old')
-plt.legend()'''
+plt.legend()
 
+'''
 plt.figure()
 plt.title('Tof to eV conversion')
 plt.gca().set_xlabel('time of flight [us]')
@@ -115,13 +118,7 @@ plt.gca().set_ylabel('electron energy [eV]')
 plt.plot(tof, th1_evs, label = 'new')
 plt.plot(tof, th1_evs2, label = 'new2')
 plt.plot(tof, th1_data.index - th1_retarder, label = 'old')
-plt.legend()
-
-plt.figure()
-ev = np.arange(2, 350, 1)
-plt.plot(ev, th1_conv.ev2tof(ev), label = 'new')
-plt.plot(ev, th1_conv2.ev2tof(ev), label = 'new')
-plt.legend()
+plt.legend()'''
 
 plt.show()
 idx.close()

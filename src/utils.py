@@ -30,7 +30,7 @@ class mainTofEvConv:
     def __init__(self, retarder):
         self.r = retarder
 
-        evMin = -retarder
+        evMin = -retarder + 1
         evMax = -retarder + 350
 
         evRange = np.arange(evMin, evMax, 1)
@@ -44,14 +44,16 @@ class mainTofEvConv:
 
     def ev2tof(self, e):
         #Parameters for evConversion
-        evOffset = 0.6 #eV
         l1 = 0.05      #meters
         l2 = 1.734     #meters
         l3 = 0.003
         m_over_2e = 5.69 / 2
+        evOffset = 0.6 #eV
 
-        e += evOffset
-        return np.sqrt(m_over_2e) * ( l1 / np.sqrt(e) + l2 / np.sqrt(e + self.r) + l3 / np.sqrt(e + 300) )
+        new_e = e - evOffset
+        return np.sqrt(m_over_2e) * ( l1 / np.sqrt(new_e) +
+                                      l2 / np.sqrt(new_e + self.r) +
+                                      l3 / np.sqrt(new_e + 300) )
 
 class opisEvConv:
     ''' Converts between tof and Ev for tunnel OPIS TOF spectrometers
@@ -124,7 +126,6 @@ class evConverter:
     def __call__(self, tof):
         return self.interpolator(tof)
 
-    @np.vectorize
     def ev2tof(self, e):
         return integ.quad( lambda x : self._integrand(x,e), 0, self.l)[0]
 
