@@ -23,7 +23,7 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files'    : [ 'FLASH2_USER1-2019-04-06T0400.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : ['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : {
                           'folder' : '',
@@ -42,33 +42,33 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                         },
            'slicing0' : { 'offset'   : 263,   #Offset of first slice in samples (time zero)
                           'period'   : 3500.290,  #Rep period of FEL in samples
-                          'window'   : 2000,  #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 0,     #Skip fist samples of each slice (cuts off high energy electrons)
-                          'dt'       : 5,     #Time between samples [us]
+                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
            'slicing1' : { 'offset'   : 225,     #Offset of first slice in samples (time zero)
                           'period'   : 3500.302,  #Rep period of FEL in samples
-                          'window'   : 2000,  #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 0,     #Skip fist samples of each slice (cuts off high energy electrons)
-                          'dt'       : 5,     #Time between samples [us]
+                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
            'slicing2' : { 'offset'   : 220,     #Offset of first slice in samples (time zero)
                           'period'   : 3500.300,  #Rep period of FEL in samples
-                          'window'   : 2000,  #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 0,     #Skip fist samples of each slice (cuts off high energy electrons)
-                          'dt'       : 5,     #Time between samples [us]
+                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
            'slicing3' : { 'offset'   : 219,     #Offset of first slice in samples (time zero)
                           'period'   : 3500.297,  #Rep period of FEL in samples
-                          'window'   : 2000,  #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 0,     #Skip fist samples of each slice (cuts off high energy electrons)
-                          'dt'       : 5,     #Time between samples [us]
+                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
-           'chunkSize': 1000 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 cfg = AttrDict(cfg)
 
@@ -103,18 +103,22 @@ def main():
                 shots1 = opisSlicer1( dataf[cfg.hdf.opisTr1][sl], pulses[sl])
                 shots2 = opisSlicer2( dataf[cfg.hdf.opisTr2][sl], pulses[sl])
                 shots3 = opisSlicer3( dataf[cfg.hdf.opisTr3][sl], pulses[sl])
-
-
+'''
                 #plot one of the traces\
-                #import matplotlib.pyplot as plt
-                #print(shots1)
-                #shots0.query("pulseId > 81034488 and pulseId < 81034688").mean().plot()
-                #shots1.query("pulseId > 81034488 and pulseId < 81034688").mean().plot()
-                #shots2.query("pulseId > 81034488 and pulseId < 81034688").mean().plot()
-                #shots3.query("pulseId > 81034488 and pulseId < 81034688").mean().plot()
-                #plt.show()
+                import matplotlib.pyplot as plt
+                from utils import opisEvConv
+                conv= opisEvConv()
+                plt.plot(conv[0](shots0.columns),shots0.mean())
+                plt.plot(conv[1](shots1.columns),shots1.mean())
+                plt.plot(conv[2](shots2.columns),shots2.mean())
+                plt.plot(conv[3](shots3.columns),shots3.mean())
+                #shots0.mean().plot()
+                #shots1.mean().plot()
+                #shots2.mean().plot()
+                #shots3.mean().plot()
+                plt.show()
 
-                exit()
+                exit()'''
                 if shots1 is not None:
                     fout.append( 'tof0', shots0, format='t' , data_columns=True, append = True )
                     fout.append( 'tof1', shots1, format='t' , data_columns=True, append = True )
