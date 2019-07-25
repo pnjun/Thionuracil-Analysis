@@ -92,7 +92,7 @@ def do_sum_stuff(data, indices, lim=None, fit=1):
         #c = np.sqrt(np.diag(np.array([[i[0] for i in j] for j in c])))
     #else:
         #p = np.polyfit(r.index, r, 1)#, cov=True)
-        #c = np.sqrt(np.diag(np.array([[i[0] for i in j] for j in c])) cuda)
+        #c = np.sqrt(np.diag(np.array([[i[0] for i in j] for j in c])))
 
     return r#, p, ind
 
