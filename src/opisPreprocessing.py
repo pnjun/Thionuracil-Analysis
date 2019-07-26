@@ -149,7 +149,6 @@ def main():
             pulses = pulses.query("index != 0")
             fout.append('pulses' , pulses , format='t' , data_columns=True, append = True )
 
-            print()
     fout.close()
 
     if cfg.output.fname == 'AUTO':
