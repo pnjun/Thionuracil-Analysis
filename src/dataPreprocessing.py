@@ -25,13 +25,13 @@ from attrdict import AttrDict
 from utils import Slicer
 
 #cfguration parameters:
-cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',
-                          'files'    : 'FLASH2_USER1-2019-0?-[30][0123789]*.h5',#'FLASH2_USER1-2019-03-2*.h5' ['FLASH2_USER1-2019-03-25T1115.h5'],  List of files to process or globbable string. All files must have the same number of shots
+cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
+                          'files'    : 'FLASH2_USER1-2019-04-0[456]*.h5', #'FLASH2_USER1-2019-0?-[30][0123789]*.h5', #'FLASH2_USER1-2019-03-2*.h5' ['FLASH2_USER1-2019-03-25T1115.h5'],  List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : {
-                          'folder'      : '/media/Data/Beamtime/processed/',
+                          'folder'      : '/media/Fast1/ThioUr/processed/',
                           'pulsefname'  : 'index.h5',
-                          'shotsfname'  : 'second_block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.
+                          'shotsfname'  : 'third_block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.
                         },
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -165,7 +165,7 @@ def main():
             except (KeyError):
                 pass
             shotsData = shotsData.query("pulseId not in @shotsIdx")
-            print(shotsData)
+
             pulsefout.append('pulses'   , pulses   , format='t' , data_columns=True, append = True )
             shotsfout.append('shotsData', shotsData, format='t' , data_columns=True, append = True )
 

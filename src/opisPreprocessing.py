@@ -23,12 +23,12 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files'    : ['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : ['FLASH2_USER1-2019-04-01T0238.h5'] #'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : {
-                          'folder' : '',
+                          'folder' : '/media/Fast1/ThioUr/processed/',
                           # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.
-                          'fname'  : 'opistest.h5',
+                          'fname'  :  'second_block_opis.h5',
                         },
            'hdf'      : { 'opisTr0'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
                           'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
@@ -37,7 +37,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                           'ret0'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF1 voltages/Ret nominal set',
                           'ret1'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF2 voltages/Ret nominal set',
                           'ret2'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF3 voltages/Ret nominal set',
-                          'ret'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
+                          'ret3'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
                           'times'      : '/Timing/time stamp/fl2user1',
                         },
            'slicing0' : { 'offset'   : 263,   #Offset of first slice in samples (time zero)
@@ -83,7 +83,11 @@ def main():
             #Dataframe for macrobunch info
             pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'),
                                      'time'        : dataf[cfg.hdf.times][:, 0],
-                                   } , columns = [ 'pulseId', 'time' ])
+                                     'ret0'      : dataf[cfg.hdf.ret0][:, 0],
+                                     'ret1'      : dataf[cfg.hdf.ret1][:, 0],
+                                     'ret2'      : dataf[cfg.hdf.ret2][:, 0],
+                                     'ret3'      : dataf[cfg.hdf.ret3][:, 0],
+                                   } , columns = [ 'pulseId', 'time', 'ret0', 'ret1', 'ret2', 'ret3' ])
             pulses = pulses.set_index('pulseId')
 
             #Slice shot data and add it to shotsTof
@@ -103,22 +107,25 @@ def main():
                 shots1 = opisSlicer1( dataf[cfg.hdf.opisTr1][sl], pulses[sl])
                 shots2 = opisSlicer2( dataf[cfg.hdf.opisTr2][sl], pulses[sl])
                 shots3 = opisSlicer3( dataf[cfg.hdf.opisTr3][sl], pulses[sl])
-                '''
-                #plot one of the traces\
-                import matplotlib.pyplot as plt
+
+                #plot one of the traces
+                '''import matplotlib.pyplot as plt
                 from utils import opisEvConv
                 conv= opisEvConv()
-                plt.plot(conv[0](shots0.columns),shots0.mean())
-                plt.plot(conv[1](shots1.columns),shots1.mean())
-                plt.plot(conv[2](shots2.columns),shots2.mean())
-                plt.plot(conv[3](shots3.columns),shots3.mean())
-                #shots0.mean().plot()
-                #shots1.mean().plot()
-                #shots2.mean().plot()
-                #shots3.mean().plot()
-                plt.show()
+                #plt.plot(conv[0](shots0.columns),shots0.mean())
+                #plt.plot(conv[1](shots1.columns),shots1.mean())
+                #plt.plot(conv[2](shots2.columns),shots2.mean())
+                #plt.plot(conv[3](shots3.columns),shots3.mean())
+
+                for shot in range(100,200,1):
+                    plt.plot(conv[0](shots0.columns),shots0.iloc[shot])
+                    plt.plot(conv[1](shots1.columns),shots1.iloc[shot])
+                    plt.plot(conv[2](shots2.columns),shots2.iloc[shot])
+                    plt.plot(conv[3](shots3.columns),shots3.iloc[shot])
+                    plt.show()
 
                 exit()'''
+
                 try:
                     fout.append( 'tof0', shots0, format='t' , append = True )
                     fout.append( 'tof1', shots1, format='t' , append = True )
@@ -126,6 +133,10 @@ def main():
                     fout.append( 'tof3', shots3, format='t' , append = True )
                 except Exception as e:
                     print(e)
+
+            pulses = pulses.query("index != 0")
+            fout.append('pulses' , pulses , format='t' , data_columns=True, append = True )
+
             print()
     fout.close()
 
