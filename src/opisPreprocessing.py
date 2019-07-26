@@ -15,7 +15,7 @@ For info contact Fabiano
 import h5py
 import pandas as pd
 import numpy as np
-import os
+import os, glob
 import uuid
 from attrdict import AttrDict
 
@@ -23,7 +23,7 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files'    : ['FLASH2_USER1-2019-04-01T0238.h5'] #'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : 'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : {
                           'folder' : '/media/Fast1/ThioUr/processed/',
@@ -68,18 +68,23 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                           'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
-           'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'chunkSize': 2000 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 cfg = AttrDict(cfg)
 
 
 
 def main():
-    outfname = uuid.uuid4().hex + ".temp" if cfg.output.fname == 'AUTO' else cfg.output.fname
+    outfname = uuid.uuid4().hex + '.temp' if cfg.output.fname == 'AUTO' else cfg.output.fname
 
-    fout = pd.HDFStore(cfg.output.folder + outfname, "w")  # complevel btw 0 and 10
-    for fname in cfg.data.files:
-        with h5py.File( cfg.data.path + fname ) as dataf:
+    fout = pd.HDFStore(cfg.output.folder + outfname)  # complevel btw 0 and 10
+
+    flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
+    flist = sorted(flist)
+
+    print(f"processing {len(flist)} files")
+    for fname in flist:
+        with h5py.File( fname ) as dataf:
             #Dataframe for macrobunch info
             pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'),
                                      'time'        : dataf[cfg.hdf.times][:, 0],
@@ -89,6 +94,13 @@ def main():
                                      'ret3'      : dataf[cfg.hdf.ret3][:, 0],
                                    } , columns = [ 'pulseId', 'time', 'ret0', 'ret1', 'ret2', 'ret3' ])
             pulses = pulses.set_index('pulseId')
+
+            #Check if OPIS raw data is present in file:
+            try:
+                dataf[cfg.hdf.opisTr0]
+            except KeyError:
+                print(f"No OPIS traces in {fname}, continuing")
+                continue
 
             #Slice shot data and add it to shotsTof
             opisSlicer0 = Slicer(cfg.slicing0, removeBg = True)
