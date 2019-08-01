@@ -15,117 +15,146 @@ For info contact Fabiano
 import h5py
 import pandas as pd
 import numpy as np
-import os
+import os, glob
 import uuid
 from attrdict import AttrDict
 
 from utils import Slicer
 
 #cfguration parameters:
-cfg = {    'data'     : { 'path'     : '/media/Data/Beamtime/raw/',     
-                          'files'    : [ 'FLASH2_USER1-2019-04-06T0400.h5' ] ,   # List of files to process. All files must have the same number of shots per macrobunch
+cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
+                          'files'    : 'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
-           'output'   : { 
-                          'folder' : '',
-                          # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.     
-                          'fname'  : 'opistest.h5',  
-                        },  
-           'hdf'      : { 'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
-                          'opisTr2'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
-                          'opisTr3'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH02',
-                          'opisTr4'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH03',
-                          'ret1'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF1 voltages/Ret nominal set',
-                          'ret2'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF2 voltages/Ret nominal set',
-                          'ret3'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF3 voltages/Ret nominal set',
-                          'ret4'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
+           'output'   : {
+                          'folder' : '/media/Fast1/ThioUr/processed/',
+                          # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.
+                          'fname'  :  'second_block_opis.h5',
+                        },
+           'hdf'      : { 'opisTr0'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
+                          'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
+                          'opisTr2'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH02',
+                          'opisTr3'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH03',
+                          'ret0'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF1 voltages/Ret nominal set',
+                          'ret1'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF2 voltages/Ret nominal set',
+                          'ret2'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF3 voltages/Ret nominal set',
+                          'ret3'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
                           'times'      : '/Timing/time stamp/fl2user1',
-                        },                
-           'slicing1' : { 'offset'   : 3478,     #Offset of first slice in samples (time zero)
-                          'period'   : 3500,     #Rep period of FEL in samples
-                          'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
-                          'shotsNum' : 20,       #Number of shots per macrobunch
                         },
-           'slicing2' : { 'offset'   : 3441,      #Offset of first slice in samples (time zero)
-                          'period'   : 3500,     #Rep period of FEL in samples
-                          'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
-                          'shotsNum' : 20,       #Number of shots per macrobunch
+           'slicing0' : { 'offset'   : 263,   #Offset of first slice in samples (time zero)
+                          'period'   : 3500.290,  #Rep period of FEL in samples
+                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'dt'       : 0.00014,     #Time between samples [us]
+                          'shotsNum' : 49,    #Number of shots per macrobunch
                         },
-           'slicing3' : { 'offset'   : 3435,      #Offset of first slice in samples (time zero)
-                          'period'   : 3500,     #Rep period of FEL in samples
-                          'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
-                          'shotsNum' : 20,       #Number of shots per macrobunch
+           'slicing1' : { 'offset'   : 225,     #Offset of first slice in samples (time zero)
+                          'period'   : 3500.302,  #Rep period of FEL in samples
+                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'dt'       : 0.00014,     #Time between samples [us]
+                          'shotsNum' : 49,    #Number of shots per macrobunch
                         },
-           'slicing4' : { 'offset'   : 3433,      #Offset of first slice in samples (time zero)
-                          'period'   : 3500,     #Rep period of FEL in samples
-                          'window'   : 3500,     #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 300,      #Number of samples to skip at the beginning of each slice (cuts off high energy electrons)
-                          'shotsNum' : 20,       #Number of shots per macrobunch
+           'slicing2' : { 'offset'   : 220,     #Offset of first slice in samples (time zero)
+                          'period'   : 3500.300,  #Rep period of FEL in samples
+                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'dt'       : 0.00014,     #Time between samples [us]
+                          'shotsNum' : 49,    #Number of shots per macrobunch
                         },
-           'tof2ev'   : { 'len'      : 0.309,      #lenght of flight tube in meters
-                          'dt'       : 0.001429    #interval between tof samples in us
-                        },                                                                          
-           'chunkSize': 500 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
+           'slicing3' : { 'offset'   : 219,     #Offset of first slice in samples (time zero)
+                          'period'   : 3500.297,  #Rep period of FEL in samples
+                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'dt'       : 0.00014,     #Time between samples [us]
+                          'shotsNum' : 49,    #Number of shots per macrobunch
+                        },
+           'chunkSize': 2000 #How many macrobunches to read/write at a time. Increasing increases RAM usage (1 macrobunch is about 6.5 MB)
          }
 cfg = AttrDict(cfg)
 
 
-        
+
 def main():
-    outfname = uuid.uuid4().hex + ".temp" if cfg.output.fname == 'AUTO' else cfg.output.fname
-    
-    fout = pd.HDFStore(cfg.output.folder + outfname, "w")  # complevel btw 0 and 10
-    for fname in cfg.data.files:
-        with h5py.File( cfg.data.path + fname ) as dataf:
+    outfname = uuid.uuid4().hex + '.temp' if cfg.output.fname == 'AUTO' else cfg.output.fname
+
+    fout = pd.HDFStore(cfg.output.folder + outfname)  # complevel btw 0 and 10
+
+    flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
+    flist = sorted(flist)
+
+    print(f"processing {len(flist)} files")
+    for fname in flist:
+        with h5py.File( fname ) as dataf:
             #Dataframe for macrobunch info
             pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'),
                                      'time'        : dataf[cfg.hdf.times][:, 0],
-                                   } , columns = [ 'pulseId', 'time' ]) 
-            pulses = pulses.set_index('pulseId')   
-            
+                                     'ret0'      : dataf[cfg.hdf.ret0][:, 0],
+                                     'ret1'      : dataf[cfg.hdf.ret1][:, 0],
+                                     'ret2'      : dataf[cfg.hdf.ret2][:, 0],
+                                     'ret3'      : dataf[cfg.hdf.ret3][:, 0],
+                                   } , columns = [ 'pulseId', 'time', 'ret0', 'ret1', 'ret2', 'ret3' ])
+            pulses = pulses.set_index('pulseId')
+
+            #Check if OPIS raw data is present in file:
+            try:
+                dataf[cfg.hdf.opisTr0]
+            except KeyError:
+                print(f"No OPIS traces in {fname}, continuing")
+                continue
+
             #Slice shot data and add it to shotsTof
-            opisSlicer1 = Slicer(cfg.slicing1, tof2ev = cfg.tof2ev)
-            opisSlicer2 = Slicer(cfg.slicing2, tof2ev = cfg.tof2ev)
-            opisSlicer3 = Slicer(cfg.slicing3, tof2ev = cfg.tof2ev)
-            opisSlicer4 = Slicer(cfg.slicing4, tof2ev = cfg.tof2ev)
-                    
+            opisSlicer0 = Slicer(cfg.slicing0, removeBg = True)
+            opisSlicer1 = Slicer(cfg.slicing1, removeBg = True)
+            opisSlicer2 = Slicer(cfg.slicing2, removeBg = True)
+            opisSlicer3 = Slicer(cfg.slicing3, removeBg = True)
+
+
             #Split up computation in cunks
             chunks = np.arange(0, dataf[cfg.hdf.opisTr1].shape[0], cfg.chunkSize)
             for i, start in enumerate(chunks):
                 print("processing %s, chunk %d of %d        " % (fname, i, len(chunks)) , end ='\r')
                 sl = slice(start,start+cfg.chunkSize)
-                
+
+                shots0 = opisSlicer0( dataf[cfg.hdf.opisTr0][sl], pulses[sl])
                 shots1 = opisSlicer1( dataf[cfg.hdf.opisTr1][sl], pulses[sl])
                 shots2 = opisSlicer2( dataf[cfg.hdf.opisTr2][sl], pulses[sl])
                 shots3 = opisSlicer3( dataf[cfg.hdf.opisTr3][sl], pulses[sl])
-                shots4 = opisSlicer4( dataf[cfg.hdf.opisTr4][sl], pulses[sl])
 
-                #plot one of the traces\
-                energy = False
-                import matplotlib.pyplot as plt
-                shots1.query("pulseId > 81034488 and pulseId < 81034688").mean().plot(use_index=energy)
-                shots2.query("pulseId > 81034488 and pulseId < 81034688").mean().plot(use_index=energy)
-                shots3.query("pulseId > 81034488 and pulseId < 81034688").mean().plot(use_index=energy)
-                shots4.query("pulseId > 81034488 and pulseId < 81034688").mean().plot(use_index=energy)
-                plt.show()
-                
-                exit()
-                if shots1 is not None: 
-                    fout.put( 'tof1', shots1, format='t', append = True )
-                    fout.put( 'tof2', shots2, format='t', append = True )
-                    fout.put( 'tof3', shots3, format='t', append = True )
-                    fout.put( 'tof4', shots4, format='t', append = True )
-                                        
-            print()       
+                #plot one of the traces
+                '''import matplotlib.pyplot as plt
+                from utils import opisEvConv
+                conv= opisEvConv()
+                #plt.plot(conv[0](shots0.columns),shots0.mean())
+                #plt.plot(conv[1](shots1.columns),shots1.mean())
+                #plt.plot(conv[2](shots2.columns),shots2.mean())
+                #plt.plot(conv[3](shots3.columns),shots3.mean())
+
+                for shot in range(100,200,1):
+                    plt.plot(conv[0](shots0.columns),shots0.iloc[shot])
+                    plt.plot(conv[1](shots1.columns),shots1.iloc[shot])
+                    plt.plot(conv[2](shots2.columns),shots2.iloc[shot])
+                    plt.plot(conv[3](shots3.columns),shots3.iloc[shot])
+                    plt.show()
+
+                exit()'''
+
+                try:
+                    fout.append( 'tof0', shots0, format='t' , append = True )
+                    fout.append( 'tof1', shots1, format='t' , append = True )
+                    fout.append( 'tof2', shots2, format='t' , append = True )
+                    fout.append( 'tof3', shots3, format='t' , append = True )
+                except Exception as e:
+                    print(e)
+
+            pulses = pulses.query("index != 0")
+            fout.append('pulses' , pulses , format='t' , data_columns=True, append = True )
+
     fout.close()
-    
+
     if cfg.output.fname == 'AUTO':
-        newname = "OPIS-%d-%d.h5" % (pulses.index[0], pulses.index[-1]) 
+        newname = "OPIS-%d-%d.h5" % (pulses.index[0], pulses.index[-1])
         os.rename(cfg.output.folder + outfname, cfg.output.folder + newname  )
         print("Output renamed to: %s" % newname)
-        
+
 if __name__ == "__main__":
 	main()
-	

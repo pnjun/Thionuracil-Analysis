@@ -51,7 +51,7 @@ def binToGmd(tofData, laserData, bins=10):
         bins = pd.interval_range(start=laserMin, end=laserMax, periods=bins)
     elif type(bins) != pd.core.indexes.interval.IntervalIndex:
         raise TypeError("You should use an integer or pandas IntervalIndex object for bins!")
-    
+
     ldBinned = pd.cut(laserData, bins)
     tofBinned = pd.DataFrame(data=tofData.groupby(ldBinned).mean().to_numpy(), index=bins, columns=tofData.columns)
 
@@ -70,14 +70,14 @@ def normToGmd(tofTrace, gmd):
     """
     @cuda.jit
     def normTofToGmd(tof, gmd):
-        row = 2 * cuda.blockIdx.x
+        row = cuda.blockIdx.x
         col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
         tof[ row    , col ]  /= gmd[row]
 
     #Get difference data
     tof = cp.array(tofTrace.to_numpy())
     cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
-    normTofToGmd[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof, cuGmd)
+    normTofToGmd[ (tof.shape[0] , tof.shape[1] // 250) , 250 ](tof, cuGmd)
 
     return pd.DataFrame( tof.get(), index = tofTrace.index, columns=tofTrace.columns)
 
@@ -114,7 +114,7 @@ if __name__ == '__main__':
     shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]', 'pulseId in pulses.index'] )[cfg.hdf.param]
     #Remove pulses with no corresponing shots
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
-    
+
     # some analysis on gmd
     print("do some stuff with GMD data.")
     shotsMean = np.array([shotsData.loc[bunch].mean() for bunch in shotsData.index.levels[0].values])
@@ -130,14 +130,14 @@ if __name__ == '__main__':
     shotsData.hist(bins=125, ax=ax1[1])
     ax1[1].set_xlabel("X-ray intensity (µJ)")
     ax1[1].set_ylabel("# of pulses")
-    ax1[1].yaxis.set_major_formatter(mtick.FormatStrFormatter('%.0e')) 
+    ax1[1].yaxis.set_major_formatter(mtick.FormatStrFormatter('%.0e'))
     shotsBunch = np.array([shotsData.loc[:, pulse].mean() for pulse in range(50)])
     ax1[2].plot(np.linspace(1,51, 50), shotsBunch)
     ax1[2].set_xlabel("pulse number")
     ax1[2].set_ylabel("mean x-ray intensity (µJ)")
     plt.tight_layout()
     print("done with that stuff.")
-    
+
     # go for tof data
     intervals = pd.interval_range(start=0, end=125, freq=1.) # bins for gmd
     shotsTof  = tr.select('shotsTof', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
@@ -162,13 +162,13 @@ if __name__ == '__main__':
     img /= binCount[:,None]
     bg = np.array([np.mean(i[-50:-1]) for i in img])
     img -= bg[:,None]
-        
+
     gmdBins = shotsData.groupby(pd.cut(shotsData, intervals)).mean()
     tofs = tr.select("shotsTof", where=["pulseId == pulsesLims[0]", "pulseId in pulses.index"]).columns
     tr.close()
 
     evConv = mainTofEvConv(pulses.retarder.mean())
-    evs = evConv(tofs.to_numpy(dtype=np.float64))
+    evs = evConv(tofs)
 
     img = pd.DataFrame(data=img, index=gmdBins.values, columns=evs, dtype="float64").dropna()
     cmax = np.max(abs(img.values))*0.5
@@ -191,6 +191,6 @@ if __name__ == '__main__':
     ax2[1].set_xlabel("GMD (µJ)")
     ax2[1].set_ylabel("Summed signal (arb.units)")
     ax2[1].legend()
-    
+
     plt.tight_layout()
     plt.show()
