@@ -11,23 +11,34 @@ import cupy as cp
 from utils import mainTofEvConv
 from utils import filterPulses
 
+import pickle
+
 cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'first_block.h5'
                         },
-          #'time'     : { 'start' : datetime(2019,3,26,15,44,0).timestamp(),
-          #               'stop'  : datetime(2019,3,26,23,54,0).timestamp(),
-            'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
-                           'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
+           #'time'     : { 'start' : datetime(2019,3,26,16,4,0).timestamp(),
+           #              'stop'  : datetime(2019,3,26,23,59,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
                         },
-           'filters'  : { 'undulatorEV' : (268,274),
+           'filters'  : { 'undulatorEV' : (269,274),
                           'retarder'    : (-81,-79),
-                          'waveplate'   : (38,47)
+                          'waveplate'   : (37,45)
                         },
            'delayBinStep': 0.05,
            'ioChunkSize' : 200000,
-           'gmdNormalize': True
+           'gmdNormalize': False
       }
+
+#filename for dictionary and processed results      
+filename = 'results_gmd=False'
+#pickle the cfg dictionary
+outfile = open(filename, 'wb')
+pickle.dump(cfg, outfile)
+outfile.close()
+
+
 cfg = AttrDict(cfg)
 
 idx = pd.HDFStore(cfg.data.path + cfg.data.index, mode = 'r')
@@ -74,7 +85,8 @@ shotsData = shotsData.query('shotNum % 2 == 0')
 #Define CUDA kernel for delay adjustment
 @cuda.jit
 def shiftBAM(bam, delay):
-    bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] += delay[cuda.blockIdx.x]
+    #bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] += delay[cuda.blockIdx.x]
+    bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] = delay[cuda.blockIdx.x]
 
 #Check BAM data integrity
 if shotsData.BAM.isnull().to_numpy().any():
@@ -89,7 +101,7 @@ shiftBAM[pulses.shape[0], shotsData.index.levels[1].shape[0] // 2](bam,delay)
 shotsData['delay'] = bam.get()
 
 #Show histogram and get center point for binning
-shotsData.delay.hist(bins=70)
+shotsData.delay.hist(bins=60)
 def getBinStart(event):
     global binStart
     binStart = event.xdata
@@ -149,7 +161,7 @@ for counter, chunk in enumerate(shotsTof):
     shotsDiff = getDiff(chunk, gmdData)
     for binId, bin in enumerate(bins):
         name, group = bin
-        group = group.query("GMD > 2")
+        group = group.query("GMD > 2.")
         binTrace = shotsDiff.reindex(group.index).mean()
         if not binTrace.isnull().to_numpy().any():
             img[binId] += binTrace
@@ -165,7 +177,7 @@ evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 #plot resulting image
 cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.1
 plt.pcolor(evs, delays ,img, cmap='bwr', vmax=cmax, vmin=-cmax)
-plt.savefig('output')
+plt.savefig(filename)
 #plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
 #plot liner graph of integral over photoline
 plt.figure()
@@ -176,5 +188,11 @@ valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin() )
 plt.plot(delays, img.T[valence].sum(axis=0))
 plt.show()
 
+results = np.full((img.shape[0]+1,img.shape[1]+1), np.nan)
+results[1:,1:] = img
+results[1:,0] = delays
+results[0,1:] = evs
+
+np.savetxt(filename + '.txt', results, header='first row: kinetic energies, first column: delays')#img)
 idx.close()
 tr.close()
