@@ -2,9 +2,7 @@
 import scipy.integrate as integ
 from scipy import interpolate
 import numpy as np
-from contextlib import suppress
 import pandas as pd
-
 
 def filterPulses(pulses, filters):
     ''' Filters a df of pulses for all rows where parameters are within the bounds defined in filt object
@@ -20,6 +18,30 @@ def filterPulses(pulses, filters):
     queryExpr = " and ".join(queryList)
     return pulses.query(queryExpr)
 
+def correctBAM(delaysData, bamData):
+    from numba import cuda
+    import cupy as cp
+
+    ''' Takes an array of delays and an array of BAM values and combines them, returing an array with the same shape of bamData offset with the delay value.
+    bamData must be 25 times longer than delay. Each delay value is mapped to 25 BAM values. '''
+    assert bamData.shape[0] == delaysData.shape[0] * 25, "BAM data must be 25 times longer than delays"
+
+    #Define CUDA kernel for delay adjustment
+    @cuda.jit
+    def shiftBAM(bam, delay):
+        bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] += delay[cuda.blockIdx.x]
+        #bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] = delay[cuda.blockIdx.x]
+
+    #Check BAM data integrity
+    if np.isnan(bamData).any():
+        raise ValueError("BAM data not complete (NaN)")
+
+    #Copy data to GPU
+    bam = cp.array(bamData)
+    delay = cp.array(delaysData)
+    #Shift BAM and add column with new data
+    shiftBAM[delaysData.shape[0], 25](bam,delay)
+    return bam.get()
 
 class mainTofEvConv:
     ''' Converts between tof and Ev for main chamber TOF spectrometer
@@ -90,6 +112,7 @@ class opisEvConv:
         return (  p[4] + p[0] / np.sqrt(e + p[1]) + p[2] / ( e + p[3] )**1.5 ) / 1000
 
 class Slicer:
+    from contextlib import suppress
     ''' Splits a ADC trace into slices given a set of slicing parameters '''
     def __init__(self, sliceParams, removeBg = False):
         '''

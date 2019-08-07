@@ -8,8 +8,7 @@ from attrdict import AttrDict
 from numba import cuda
 import cupy as cp
 
-from utils import mainTofEvConv
-from utils import filterPulses
+from utils import mainTofEvConv, filterPulses, correctBAM
 
 import pickle
 
@@ -31,7 +30,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
            'gmdNormalize': False
       }
 
-#filename for dictionary and processed results      
+#filename for dictionary and processed results
 filename = 'results_gmd=False'
 #pickle the cfg dictionary
 outfile = open(filename, 'wb')
@@ -81,24 +80,7 @@ else:
 
 #Remove unpumped pulses
 shotsData = shotsData.query('shotNum % 2 == 0')
-
-#Define CUDA kernel for delay adjustment
-@cuda.jit
-def shiftBAM(bam, delay):
-    #bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] += delay[cuda.blockIdx.x]
-    bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] = delay[cuda.blockIdx.x]
-
-#Check BAM data integrity
-if shotsData.BAM.isnull().to_numpy().any():
-    print("BAM data not complete (NaN). Exiting\n")
-    exit()
-
-#Copy data to GPU
-bam = cp.array(shotsData.BAM.values)
-delay = cp.array(pulses.delay.values)
-#Shift BAM and add column with new data
-shiftBAM[pulses.shape[0], shotsData.index.levels[1].shape[0] // 2](bam,delay)
-shotsData['delay'] = bam.get()
+shotsData['delay'] = correctBAM(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 
 #Show histogram and get center point for binning
 shotsData.delay.hist(bins=60)
