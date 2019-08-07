@@ -8,7 +8,7 @@ from attrdict import AttrDict
 from numba import cuda
 import cupy as cp
 
-from utils import mainTofEvConv, filterPulses, correctBAM
+import utils
 
 import pickle
 
@@ -27,16 +27,11 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                         },
            'delayBinStep': 0.05,
            'ioChunkSize' : 200000,
-           'gmdNormalize': False
+           'gmdNormalize': False,
+           'useBAM'      : True,
+
+           'outFname'    : 'results_bam=True'
       }
-
-#filename for dictionary and processed results
-filename = 'results_gmd=False'
-#pickle the cfg dictionary
-outfile = open(filename, 'wb')
-pickle.dump(cfg, outfile)
-outfile.close()
-
 
 cfg = AttrDict(cfg)
 
@@ -47,7 +42,7 @@ tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, mode = 'r')
 pulses = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
 pulsesLims = (pulses.index[0], pulses.index[-1])
 #Filter only pulses with parameters in range
-pulses = filterPulses(pulses, cfg.filters)
+pulses = utils.filterPulses(pulses, cfg.filters)
 
 #Get corresponing shots
 if(len(pulses) == 0):
@@ -59,19 +54,7 @@ shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId 
 pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 
 #Plot relevant parameters
-f1 = plt.figure()
-f1.suptitle("Uv Power histogram\nPress esc to continue")
-shotsData.uvPow.hist(bins=20)
-f2 = plt.figure()
-f2.suptitle(f"GMD histogram\nAverage:{shotsData.GMD.mean():.2f}")
-shotsData.GMD.hist(bins=70)
-def closeFigs(event):
-    if event.key == 'escape':
-        plt.close(f1)
-        plt.close(f2)
-f1.canvas.mpl_connect('key_press_event', closeFigs)
-f2.canvas.mpl_connect('key_press_event', closeFigs)
-plt.show()
+utils.plotParams(shotsData)
 
 if cfg.gmdNormalize:
     gmdData = shotsData.GMD
@@ -80,7 +63,10 @@ else:
 
 #Remove unpumped pulses
 shotsData = shotsData.query('shotNum % 2 == 0')
-shotsData['delay'] = correctBAM(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
+if cfg.useBAM:
+    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
+else:
+    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
 
 #Show histogram and get center point for binning
 shotsData.delay.hist(bins=60)
@@ -149,17 +135,21 @@ for counter, chunk in enumerate(shotsTof):
             img[binId] += binTrace
             binCount[binId] += 1
 
+idx.close()
+tr.close()
+
 #average all chunks, counter + 1 is the total number of chunks we loaded
 img /= binCount[:,None]
 #get axis labels
 delays = np.array( [name.mid for name, _ in bins] )
-evConv = mainTofEvConv(pulses.retarder.mean())
+evConv = utils.mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
+'''
 #plot resulting image
 cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.1
 plt.pcolor(evs, delays ,img, cmap='bwr', vmax=cmax, vmin=-cmax)
-plt.savefig(filename)
+plt.savefig(cfg.outFname)
 #plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
 #plot liner graph of integral over photoline
 plt.figure()
@@ -168,13 +158,14 @@ photoline = slice( np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin() )
 plt.plot(delays, img.T[photoline].sum(axis=0))
 valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin() )
 plt.plot(delays, img.T[valence].sum(axis=0))
-plt.show()
+plt.show()'''
 
 results = np.full((img.shape[0]+1,img.shape[1]+1), np.nan)
 results[1:,1:] = img
 results[1:,0] = delays
 results[0,1:] = evs
 
-np.savetxt(filename + '.txt', results, header='first row: kinetic energies, first column: delays')#img)
-idx.close()
-tr.close()
+with open(cfg.outFname + '.pickle', 'wb') as fout:
+    pickle.dump(cfg, fout)
+
+np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)

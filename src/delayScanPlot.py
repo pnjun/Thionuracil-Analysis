@@ -5,7 +5,7 @@ import pickle
 
 filename = argv[1]
 
-inpickle = open(filename, 'rb')
+inpickle = open(filename+'.pickle', 'rb')
 cfg = pickle.load(inpickle)
 inpickle.close()
 

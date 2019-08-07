@@ -18,30 +18,55 @@ def filterPulses(pulses, filters):
     queryExpr = " and ".join(queryList)
     return pulses.query(queryExpr)
 
-def correctBAM(delaysData, bamData):
+def shotsDelay(delaysData, bamData=None):
+    ''' Takes an array of delays and an array of BAM values and combines them, returing an array with the same shape of bamData offset with the delay value.
+    If bamData is None no bam correction is performed, an array of the appropriate size is created and returned using just delayData.
+    bamData must be 25 times longer than delay. Each delay value is mapped to 25 BAM values. '''
+
     from numba import cuda
     import cupy as cp
 
-    ''' Takes an array of delays and an array of BAM values and combines them, returing an array with the same shape of bamData offset with the delay value.
-    bamData must be 25 times longer than delay. Each delay value is mapped to 25 BAM values. '''
-    assert bamData.shape[0] == delaysData.shape[0] * 25, "BAM data must be 25 times longer than delays"
-
-    #Define CUDA kernel for delay adjustment
+    #Define CUDA kernels for delay adjustment
     @cuda.jit
     def shiftBAM(bam, delay):
-        bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] += delay[cuda.blockIdx.x]
-        #bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] = delay[cuda.blockIdx.x]
+        bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] += delay[cuda.blockIdx.x] #With BAM
+
+    @cuda.jit
+    def propagateDelay(bam, delay):
+        bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] = delay[cuda.blockIdx.x]  #No BAM
 
     #Check BAM data integrity
-    if np.isnan(bamData).any():
-        raise ValueError("BAM data not complete (NaN)")
-
-    #Copy data to GPU
-    bam = cp.array(bamData)
     delay = cp.array(delaysData)
-    #Shift BAM and add column with new data
-    shiftBAM[delaysData.shape[0], 25](bam,delay)
+    if bamData is not None:
+        assert bamData.shape[0] == delaysData.shape[0] * 25, "BAM data must be 25 times longer than delays"
+        assert not np.isnan(bamData).any(), "BAM data not complete (NaN)"
+        #Copy data to GPU and shift BAM
+        bam = cp.array(bamData)
+        shiftBAM[delaysData.shape[0], 25](bam,delay)
+    else:
+        bam = cp.empty(delaysData.shape[0] * 25)
+        propagateDelay[delaysData.shape[0], 25](bam,delay)
+
     return bam.get()
+
+def plotParams(shotsData):
+    ''' Shows histograms of GMD and uvPower as a sanity check to the user.
+        Wait for user to press ESC or close the windows before continuing.
+    '''
+    import matplotlib.pyplot as plt
+    f1 = plt.figure()
+    f1.suptitle("Uv Power histogram\nPress esc to continue")
+    shotsData.uvPow.hist(bins=20)
+    f2 = plt.figure()
+    f2.suptitle(f"GMD histogram\nAverage:{shotsData.GMD.mean():.2f}")
+    shotsData.GMD.hist(bins=70)
+    def closeFigs(event):
+        if event.key == 'escape':
+            plt.close(f1)
+            plt.close(f2)
+    f1.canvas.mpl_connect('key_press_event', closeFigs)
+    f2.canvas.mpl_connect('key_press_event', closeFigs)
+    plt.show()
 
 class mainTofEvConv:
     ''' Converts between tof and Ev for main chamber TOF spectrometer
