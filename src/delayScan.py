@@ -5,9 +5,6 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from attrdict import AttrDict
 
-from numba import cuda
-import cupy as cp
-
 import utils
 
 import pickle

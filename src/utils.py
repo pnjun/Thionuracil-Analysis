@@ -50,11 +50,15 @@ def shotsDelay(delaysData, bamData=None):
     return bam.get()
 
 
-def getDiff(tofTrace, gmd = None):
+def getDiff(tofTrace, gmd = None, integSlice = None):
     '''
     Function that gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
     If GMD is not None traces are normalized on gmd before difference calculation
+    If integSlice is not none the integral of the traces over the given slicing is returned
     '''
+    from numba import cuda
+    import cupy as cp
+
     #Cuda kernel for pump probe difference calculation
     @cuda.jit
     def tofDiff(tof):
@@ -77,7 +81,13 @@ def getDiff(tofTrace, gmd = None):
         tofDiffGMD[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof, cuGmd)
     else:
         tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof)
-    return pd.DataFrame( tof[::2].get(), index = tofTrace.index[::2], columns=tofTrace.columns)
+
+    if integSlice is not None:
+        return pd.DataFrame( tof[::2, integSlice].sum(axis=1).get(),
+                             index = tofTrace.index[::2])
+    else:
+        return pd.DataFrame( tof[::2].get(),
+                             index = tofTrace.index[::2], columns=tofTrace.columns)
 
 def getROI(shotsData):
     ''' show user histogram of delays and get ROI boundaries dragging over the plot'''
