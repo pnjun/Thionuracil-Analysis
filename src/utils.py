@@ -49,6 +49,54 @@ def shotsDelay(delaysData, bamData=None):
 
     return bam.get()
 
+
+def getDiff(tofTrace, gmd = None):
+    '''
+    Function that gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
+    If GMD is not None traces are normalized on gmd before difference calculation
+    '''
+    #Cuda kernel for pump probe difference calculation
+    @cuda.jit
+    def tofDiff(tof):
+        row = 2 * cuda.blockIdx.x
+        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
+        tof[ row, col ] -= tof[ row + 1, col ]
+    @cuda.jit
+    def tofDiffGMD(tof, gmd):
+        row = 2 * cuda.blockIdx.x
+        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
+        tof[ row    , col ]  /= gmd[row]
+        tof[ row + 1, col ]  /= gmd[row + 1]
+        tof[ row, col ] -= tof[ row + 1, col ]
+
+    #Get difference data
+    tof = cp.array(tofTrace.to_numpy())
+    if gmd is not None:
+        #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
+        cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
+        tofDiffGMD[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof, cuGmd)
+    else:
+        tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof)
+    return pd.DataFrame( tof[::2].get(), index = tofTrace.index[::2], columns=tofTrace.columns)
+
+def getROI(shotsData):
+    ''' show user histogram of delays and get ROI boundaries dragging over the plot'''
+    #Show histogram and get center point for binning
+    import matplotlib.pyplot as plt
+    shotsData.delay.hist(bins=60)
+    def getBinStart(event):
+        global binStart
+        binStart = event.xdata
+    def getBinEnd(event):
+        global binEnd
+        binEnd = event.xdata
+        plt.close(event.canvas.figure)
+    plt.gcf().suptitle("Drag over ROI for binning")
+    plt.gcf().canvas.mpl_connect('button_press_event', getBinStart)
+    plt.gcf().canvas.mpl_connect('button_release_event', getBinEnd)
+    plt.show()
+    return (binStart, binEnd)
+
 def plotParams(shotsData):
     ''' Shows histograms of GMD and uvPower as a sanity check to the user.
         Wait for user to press ESC or close the windows before continuing.
@@ -137,7 +185,6 @@ class opisEvConv:
         return (  p[4] + p[0] / np.sqrt(e + p[1]) + p[2] / ( e + p[3] )**1.5 ) / 1000
 
 class Slicer:
-    from contextlib import suppress
     ''' Splits a ADC trace into slices given a set of slicing parameters '''
     def __init__(self, sliceParams, removeBg = False):
         '''
@@ -160,6 +207,7 @@ class Slicer:
         '''
         Slices tofData and returns a dataframe of shots. Each shot is indexed by macrobunch and shotnumber
         '''
+        from contextlib import suppress
         pulseList = []
         indexList = []
         for trace, pulseId in zip( tofData, pulses.index ):

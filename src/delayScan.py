@@ -68,52 +68,13 @@ if cfg.useBAM:
 else:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
 
-#Show histogram and get center point for binning
-shotsData.delay.hist(bins=60)
-def getBinStart(event):
-    global binStart
-    binStart = event.xdata
-def getBinEnd(event):
-    global binEnd
-    binEnd = event.xdata
-    plt.close(event.canvas.figure)
-plt.gcf().suptitle("Drag over ROI for binning")
-plt.gcf().canvas.mpl_connect('button_press_event', getBinStart)
-plt.gcf().canvas.mpl_connect('button_release_event', getBinEnd)
-plt.show()
+binStart, binEnd = utils.getROI(shotsData)
 
 print(f"Loading {shotsData.shape[0]} shots")
 print(f"Binning interval {binStart} : {binEnd}")
 
 #Bin data on delay
 bins = shotsData.groupby( pd.cut( shotsData.delay, np.arange(binStart, binEnd, cfg.delayBinStep) ) )
-
-#Function that gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
-#If GMD is not None traces are normalized on gmd before difference calculation
-def getDiff(tofTrace, gmd = None):
-    #Cuda kernel for pump probe difference calculation
-    @cuda.jit
-    def tofDiff(tof):
-        row = 2 * cuda.blockIdx.x
-        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
-        tof[ row, col ] -= tof[ row + 1, col ]
-    @cuda.jit
-    def tofDiffGMD(tof, gmd):
-        row = 2 * cuda.blockIdx.x
-        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
-        tof[ row    , col ]  /= gmd[row]
-        tof[ row + 1, col ]  /= gmd[row + 1]
-        tof[ row, col ] -= tof[ row + 1, col ]
-
-    #Get difference data
-    tof = cp.array(tofTrace.to_numpy())
-    if gmd is not None:
-        #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
-        cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
-        tofDiffGMD[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof, cuGmd)
-    else:
-        tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof)
-    return pd.DataFrame( tof[::2].get(), index = tofTrace.index[::2], columns=tofTrace.columns)
 
 #Read in TOF data and calulate difference, in chunks
 shotsTof  = tr.select('shotsTof',  where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
@@ -126,7 +87,7 @@ binCount = np.zeros( len(bins) )
 #Iterate over data chunks and accumulate them in img
 for counter, chunk in enumerate(shotsTof):
     print( f"loading chunk {counter}", end='\r' )
-    shotsDiff = getDiff(chunk, gmdData)
+    shotsDiff = utils.getDiff(chunk, gmdData)
     for binId, bin in enumerate(bins):
         name, group = bin
         group = group.query("GMD > 2.")
