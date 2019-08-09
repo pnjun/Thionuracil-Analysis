@@ -26,12 +26,12 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files'    : 'FLASH2_USER1-2019-04-0[456]*.h5', #'FLASH2_USER1-2019-0?-[30][0123789]*.h5', #'FLASH2_USER1-2019-03-2*.h5' ['FLASH2_USER1-2019-03-25T1115.h5'],  List of files to process or globbable string. All files must have the same number of shots
+                          'files'    : 'FLASH2_USER1-2019-0?-[30][0123789]*.h5', #, #'FLASH2_USER1-2019-03-2*.h5' ['FLASH2_USER1-2019-03-25T1115.h5'],  List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : {
                           'folder'      : '/media/Fast1/ThioUr/processed/',
-                          'pulsefname'  : 'index.h5',
-                          'shotsfname'  : 'third_block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.
+                          'pulsefname'  : 'index_.h5',
+                          'shotsfname'  : 'second_block.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.
                         },
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',
@@ -48,14 +48,14 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                           'period'   : 9969.67,     #Rep period of FEL in samples
                           'window'   : 3000 ,       #Shot lenght in samples (cuts off low energy electrons)
                           'skipNum'  : 344,         #Number of samples to skip at the beginning of each slice (cuts off high energy electrons
-                          'shotsNum' : 50,          #Number of shots per macrobunch
+                          'shotsNum' : 70,          #Number of shots per macrobunch
                           'dt'       : 0.0005       #interval between tof samples in us
                         },
            'laser'    : { 'slicing'  :  { 'offset'   : 855,        #Same as above but for 100MHz laser trace slicing
                                           'period'   : 540,
                                           'window'   : 30,
                                           'skipNum'  : 0,
-                                          'shotsNum' : 50,
+                                          'shotsNum' : 70,
                                         },
                         },
 
@@ -139,7 +139,9 @@ def main():
 
             #Dataframe for shot by shot metadata. TOF traces are in shotsTof
             #Contains GMD and UV laser power shot by shot
-            gmd = pd.DataFrame( dataf[cfg.hdf.shotGmd],     index=pulses.index ).stack(dropna = False).to_frame(name='GMD')
+            gmd = pd.DataFrame( dataf[cfg.hdf.shotGmd][:,:cfg.slicing.shotsNum],
+                                index=pulses.index ).stack(dropna = False).to_frame(name='GMD')
+
             gmd.index.rename( ['pulseId', 'shotNum'], inplace=True )
             try:
                 bam = pd.DataFrame( dataf[cfg.hdf.BAM][:,62:62+cfg.slicing.shotsNum*5:5],
