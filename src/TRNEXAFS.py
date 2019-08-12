@@ -4,7 +4,7 @@ import numpy as np
 from datetime import datetime
 from attrdict import AttrDict
 import matplotlib.pyplot as plt
-
+import sys
 import utils
 
 import pickle
@@ -20,12 +20,12 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'waveplate'   : (10,15),
                           'retarder'    : (-15,-5)
                         },
-           'delayBinStep'  : 0.05,
-           'energyBinStep' : 1,
+           'delayBinStep'  : 0.1,
+           'energyBinStep' : 3,
            'ioChunkSize'   : 200000,
-           'gmdNormalize'  : False,
+           'gmdNormalize'  : True,
            'useBAM'        : True,
-           'electronROIeV' : (100,105), #Integration region bounds in eV (electron kinetic energy)
+           'electronROIeV' : (102.5,107), #Integration region bounds in eV (electron kinetic energy)
 
            'outFname'    : 'trnexafs'
       }
@@ -52,6 +52,7 @@ shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId 
 pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 assert not pulses.opisEV.isnull().any(), "Some opisEV values are NaN"
 
+
 #Plot relevant parameters as sanity check
 utils.plotParams(shotsData)
 
@@ -75,10 +76,12 @@ gmdData = shotsData.GMD if cfg.gmdNormalize else None
 delayBins  = shotsData.groupby( pd.cut( shotsData.delay,
                                         np.arange(binStart, binEnd,
                                         cfg.delayBinStep) ) )
-energyBins = pulses.groupby   ( pd.cut( pulses.opisEV,
-                                        np.arange(pulses.opisEV.min(),
-                                                  pulses.opisEV.max(),
+energyBins = pulses.groupby   ( pd.cut( pulses.undulatorEV,
+                                        np.arange(pulses.undulatorEV.min(),
+                                                  pulses.undulatorEV.max(),
                                                   cfg.energyBinStep) ) )
+
+assert len(delayBins) > 0, "No delay bins"
 
 #Read in TOF data and calulate difference, in chunks
 shotsTof  = tr.select('shotsTof',  where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
@@ -93,23 +96,42 @@ evConv = utils.mainTofEvConv(pulses.retarder.mean())
 
 #Iterate over data chunks and accumulate them in img
 for counter, chunk in enumerate(shotsTof):
-    #print( f"loading chunk {counter}", end='\r' )
+    print( f"loading chunk {counter}", end='\r' )
+
+    #gets bounds for photoline integration
     evs = evConv(chunk.iloc[0].index)
     photoline = slice( np.abs(evs - cfg.electronROIeV[1]).argmin() ,
                        np.abs(evs - cfg.electronROIeV[0]).argmin() )
+
+    #calculate difference spectra and integrate over photoline
     shotsDiff = utils.getDiff(chunk, gmdData, integSlice=photoline)
-    print(shotsDiff)
-    continue
-    for binId, delayBin in enumerate(delayBins):
-        name, group = delayBin
+    #iterate over delay bins
+    for delayIdx, delayBin in enumerate(delayBins):
+        _, group = delayBin
         group = group.query("GMD > 2.")
-        binTrace = shotsDiff.reindex(group.index).mean()
-        if not binTrace.isnull().to_numpy().any():
-            img[binId] += binTrace
-            binCount[binId] += 1
+
+        #iterate over energy bins (note taht energy bins are just pulseIds)
+        for energyIdx, energyBin in enumerate(energyBins):
+            _, energyPulses = energyBin
+            energyGroup = group.query("pulseId in @energyPulses.index")
+            binVal = shotsDiff.reindex(energyGroup.index).mean()
+            if not binVal.isnull().to_numpy().any():
+                img[energyIdx, delayIdx] += binVal
+                binCount[energyIdx, delayIdx] += 1
 
 idx.close()
 tr.close()
+
+img /= binCount
+
+#plot resulting image
+delays = np.array( [name.mid for name, _ in delayBins] )
+energy = np.array( [name.mid for name, _ in energyBins] )
+
+cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.1
+plt.pcolor(delays, energy, img, cmap='bwr', vmax=cmax, vmin=-cmax)
+plt.show()
+
 
 exit()
 #save output for plotting
