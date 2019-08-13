@@ -22,7 +22,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'retarder'    : (-81,-79),
                           'waveplate'   : (37,45)
                         },
-           'delayBinStep': 0.05,
+           #'delayBinStep': 0.05,
+           'delayBinNum' : 100,
            'ioChunkSize' : 200000,
            'gmdNormalize': False,
            'useBAM'      : True,
@@ -71,7 +72,11 @@ print(f"Loading {shotsData.shape[0]} shots")
 print(f"Binning interval {binStart} : {binEnd}")
 
 #Bin data on delay
-bins = shotsData.groupby( pd.cut( shotsData.delay, np.arange(binStart, binEnd, cfg.delayBinStep) ) )
+if 'delayBinStep' in cfg.keys():
+    bins = shotsData.groupby( pd.cut( shotsData.delay,
+                                      np.arange(binStart, binEnd, cfg.delayBinStep) ) )
+else:
+    bins = shotsData.groupby( pd.qcut( shotsData.delay, cfg.delayBinNum ) )
 
 #Read in TOF data and calulate difference, in chunks
 shotsTof  = tr.select('shotsTof',  where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
@@ -103,7 +108,7 @@ delays = np.array( [name.mid for name, _ in bins] )
 evConv = utils.mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
-'''
+
 #plot resulting image
 cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.1
 plt.pcolor(evs, delays ,img, cmap='bwr', vmax=cmax, vmin=-cmax)
@@ -116,8 +121,9 @@ photoline = slice( np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin() )
 plt.plot(delays, img.T[photoline].sum(axis=0))
 valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin() )
 plt.plot(delays, img.T[valence].sum(axis=0))
-plt.show()'''
+plt.show()
 
+'''
 results = np.full((img.shape[0]+1,img.shape[1]+1), np.nan)
 results[1:,1:] = img
 results[1:,0] = delays
@@ -126,4 +132,4 @@ results[0,1:] = evs
 with open(cfg.outFname + '.pickle', 'wb') as fout:
     pickle.dump(cfg, fout)
 
-np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)
+np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)'''
