@@ -18,10 +18,9 @@ def filterPulses(pulses, filters):
     queryExpr = " and ".join(queryList)
     return pulses.query(queryExpr)
 
-def shotsDelay(delaysData, bamData=None):
+def shotsDelay(delaysData, bamData=None, shotsNum = None):
     ''' Takes an array of delays and an array of BAM values and combines them, returing an array with the same shape of bamData offset with the delay value.
-    If bamData is None no bam correction is performed, an array of the appropriate size is created and returned using just delayData.
-    bamData must be 25 times longer than delay. Each delay value is mapped to 25 BAM values. '''
+    If bamData is None no bam correction is performed, an array of delaysData.shape[0] * shotsNum size is created and returned using just delayData'''
 
     from numba import cuda
     import cupy as cp
@@ -38,14 +37,19 @@ def shotsDelay(delaysData, bamData=None):
     #Check BAM data integrity
     delay = cp.array(delaysData)
     if bamData is not None:
-        assert bamData.shape[0] == delaysData.shape[0] * 25, "BAM data must be 25 times longer than delays"
         assert not np.isnan(bamData).any(), "BAM data not complete (NaN)"
+        assert bamData.shape[0] % delaysData.shape[0]  == 0, "bamData lenght is not a integer multiple of delatysData"
+
+        shotsNum = bamData.shape[0] // delaysData.shape[0]
+
         #Copy data to GPU and shift BAM
         bam = cp.array(bamData)
-        shiftBAM[delaysData.shape[0], 25](bam,delay)
+        shiftBAM[delaysData.shape[0], shotsNum](bam,delay)
     else:
-        bam = cp.empty(delaysData.shape[0] * 25)
-        propagateDelay[delaysData.shape[0], 25](bam,delay)
+        assert shotsNum is not None, "if bamData is none shotsNum must be given"
+
+        bam = cp.empty(delaysData.shape[0] * shotsNum)
+        propagateDelay[delaysData.shape[0], shotsNum](bam,delay)
 
     return bam.get()
 

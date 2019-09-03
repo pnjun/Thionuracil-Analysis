@@ -59,12 +59,14 @@ if cfg.gmdNormalize:
 else:
     gmdData = None
 
-#Remove unpumped pulses
-shotsData = shotsData.query('shotNum % 2 == 0')
+#Add Bam info
+shotsNum = len(shotsData.index.levels[1]) / 2
+shotsData = shotsData.query('shotNum % 2 == 0') #Remove unpumped pulses
+
 if cfg.useBAM:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 else:
-    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
+    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
 
 binStart, binEnd = utils.getROI(shotsData)
 

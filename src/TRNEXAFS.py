@@ -13,8 +13,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'third_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,6,5,28,0).timestamp(),
-                          'stop'  : datetime(2019,4,6,10,8,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,5,33,0).timestamp(),
+                          'stop'  : datetime(2019,4,5,8,11,0).timestamp(),
                         },
            'filters'  : {
                           'waveplate'   : (10,15),
@@ -57,12 +57,13 @@ assert not pulses.opisEV.isnull().any(), "Some opisEV values are NaN"
 utils.plotParams(shotsData)
 
 #Add Bam info
+shotsNum = len(shotsData.index.levels[1]) / 2
 shotsData = shotsData.query('shotNum % 2 == 0')
 
 if cfg.useBAM:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 else:
-    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
+    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
 
 binStart, binEnd = utils.getROI(shotsData)
 
