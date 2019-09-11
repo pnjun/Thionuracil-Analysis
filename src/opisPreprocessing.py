@@ -26,7 +26,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                           'files'    : 'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : {
-                          'folder' : '/media/Fast1/ThioUr/processed/',
+                          'folder' : '/media/Fast2/ThioUr/processed/',
                           # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.
                           'fname'  :  'second_block_opis.h5',
                         },
@@ -77,7 +77,7 @@ cfg = AttrDict(cfg)
 def main():
     outfname = uuid.uuid4().hex + '.temp' if cfg.output.fname == 'AUTO' else cfg.output.fname
 
-    fout = pd.HDFStore(cfg.output.folder + outfname)  # complevel btw 0 and 10
+    fout = pd.HDFStore(cfg.output.folder + outfname, complib = 'zlib', complevel = 9)
 
     flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
     flist = sorted(flist)
@@ -112,7 +112,7 @@ def main():
             #Split up computation in cunks
             chunks = np.arange(0, dataf[cfg.hdf.opisTr1].shape[0], cfg.chunkSize)
             for i, start in enumerate(chunks):
-                print("processing %s, chunk %d of %d        " % (fname, i, len(chunks)) , end ='\r')
+                print(f"processing {fname}, chunk {i} of {len(chunks)}" , end ='\r')
                 sl = slice(start,start+cfg.chunkSize)
 
                 shots0 = opisSlicer0( dataf[cfg.hdf.opisTr0][sl], pulses[sl])
@@ -144,11 +144,12 @@ def main():
                     fout.append( 'tof2', shots2, format='t' , append = True )
                     fout.append( 'tof3', shots3, format='t' , append = True )
                 except Exception as e:
+                    print()
                     print(e)
 
             pulses = pulses.query("index != 0")
             fout.append('pulses' , pulses , format='t' , data_columns=True, append = True )
-
+            print()
     fout.close()
 
     if cfg.output.fname == 'AUTO':

@@ -5,9 +5,6 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from attrdict import AttrDict
 
-from numba import cuda
-import cupy as cp
-
 import utils
 
 import pickle
@@ -25,7 +22,12 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'retarder'    : (-81,-79),
                           'waveplate'   : (39,45)
                         },
+<<<<<<< HEAD
            'delayBinStep': 0.02,
+=======
+           #'delayBinStep': 0.05,
+           'delayBinNum' : 100,
+>>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
            'ioChunkSize' : 200000,
            'gmdNormalize': False,
            'useBAM'      : False,
@@ -61,11 +63,14 @@ if cfg.gmdNormalize:
 else:
     gmdData = None
 
-#Remove unpumped pulses
-shotsData = shotsData.query('shotNum % 2 == 0')
+#Add Bam info
+shotsNum = len(shotsData.index.levels[1]) / 2
+shotsData = shotsData.query('shotNum % 2 == 0') #Remove unpumped pulses
+
 if cfg.useBAM:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 else:
+<<<<<<< HEAD
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
 
 #Show histogram and get center point for binning
@@ -81,39 +86,21 @@ plt.gcf().suptitle("Drag over ROI for binning")
 plt.gcf().canvas.mpl_connect('button_press_event', getBinStart)
 plt.gcf().canvas.mpl_connect('button_release_event', getBinEnd)
 plt.show()
+=======
+    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
+
+binStart, binEnd = utils.getROI(shotsData)
+>>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
 
 print(f"Loading {shotsData.shape[0]} shots")
 print(f"Binning interval {binStart} : {binEnd}")
 
 #Bin data on delay
-bins = shotsData.groupby( pd.cut( shotsData.delay, np.arange(binStart, binEnd, cfg.delayBinStep) ) )
-
-#Function that gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
-#If GMD is not None traces are normalized on gmd before difference calculation
-def getDiff(tofTrace, gmd = None):
-    #Cuda kernel for pump probe difference calculation
-    @cuda.jit
-    def tofDiff(tof):
-        row = 2 * cuda.blockIdx.x
-        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
-        tof[ row, col ] -= tof[ row + 1, col ]
-    @cuda.jit
-    def tofDiffGMD(tof, gmd):
-        row = 2 * cuda.blockIdx.x
-        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
-        tof[ row    , col ]  /= gmd[row]
-        tof[ row + 1, col ]  /= gmd[row + 1]
-        tof[ row, col ] -= tof[ row + 1, col ]
-
-    #Get difference data
-    tof = cp.array(tofTrace.to_numpy())
-    if gmd is not None:
-        #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
-        cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
-        tofDiffGMD[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof, cuGmd)
-    else:
-        tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof)
-    return pd.DataFrame( tof[::2].get(), index = tofTrace.index[::2], columns=tofTrace.columns)
+if 'delayBinStep' in cfg.keys():
+    bins = shotsData.groupby( pd.cut( shotsData.delay,
+                                      np.arange(binStart, binEnd, cfg.delayBinStep) ) )
+else:
+    bins = shotsData.groupby( pd.qcut( shotsData.delay, cfg.delayBinNum ) )
 
 #Read in TOF data and calulate difference, in chunks
 shotsTof  = tr.select('shotsTof',  where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
@@ -126,7 +113,7 @@ binCount = np.zeros( len(bins) )
 #Iterate over data chunks and accumulate them in img
 for counter, chunk in enumerate(shotsTof):
     print( f"loading chunk {counter}", end='\r' )
-    shotsDiff = getDiff(chunk, gmdData)
+    shotsDiff = utils.getDiff(chunk, gmdData)
     for binId, bin in enumerate(bins):
         name, group = bin
         group = group.query("GMD > 2.")
@@ -166,6 +153,7 @@ valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin() )
 plt.plot(delays, img.T[valence].sum(axis=0))
 plt.show()
 
+'''
 results = np.full((img.shape[0]+1,img.shape[1]+1), np.nan)
 results[1:,1:] = img
 results[1:,0] = delays
@@ -174,5 +162,9 @@ results[0,1:] = evs
 with open(cfg.outFname + '.pickle', 'wb') as fout:
     pickle.dump(cfg, fout)
 
+<<<<<<< HEAD
 np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)
 
+=======
+np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)'''
+>>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
