@@ -16,21 +16,21 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'first_block.h5'
                         },
-           #'time'     : { 'start' : datetime(2019,3,26,16,4,0).timestamp(),
-           #              'stop'  : datetime(2019,3,26,23,59,0).timestamp(),
-           'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,22,51,0).timestamp(),
+                         'stop'  : datetime(2019,3,26,22,59,0).timestamp(),
+           #'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
+           #               'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (269,274),
                           'retarder'    : (-81,-79),
-                          'waveplate'   : (37,45)
+                          'waveplate'   : (39,45)
                         },
-           'delayBinStep': 0.05,
+           'delayBinStep': 0.02,
            'ioChunkSize' : 200000,
            'gmdNormalize': False,
-           'useBAM'      : True,
+           'useBAM'      : False,
 
-           'outFname'    : 'results_bam=True'
+           'outFname'    : '2019_3_29_22_51-59_bam=False'
       }
 
 cfg = AttrDict(cfg)
@@ -69,7 +69,7 @@ else:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
 
 #Show histogram and get center point for binning
-shotsData.delay.hist(bins=60)
+shotsData.delay.hist(bins=100)
 def getBinStart(event):
     global binStart
     binStart = event.xdata
@@ -138,14 +138,20 @@ for counter, chunk in enumerate(shotsTof):
 idx.close()
 tr.close()
 
-#average all chunks, counter + 1 is the total number of chunks we loaded
 img /= binCount[:,None]
+
+#average all chunks, counter + 1 is the total number of chunks we loaded
+#print("binCount[:,None]:", binCount[:,None])
+
+#plt.plot(binCount[:,None])
+#plt.show()
+
 #get axis labels
 delays = np.array( [name.mid for name, _ in bins] )
 evConv = utils.mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
-'''
+
 #plot resulting image
 cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.1
 plt.pcolor(evs, delays ,img, cmap='bwr', vmax=cmax, vmin=-cmax)
@@ -158,7 +164,7 @@ photoline = slice( np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin() )
 plt.plot(delays, img.T[photoline].sum(axis=0))
 valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin() )
 plt.plot(delays, img.T[valence].sum(axis=0))
-plt.show()'''
+plt.show()
 
 results = np.full((img.shape[0]+1,img.shape[1]+1), np.nan)
 results[1:,1:] = img
@@ -169,3 +175,4 @@ with open(cfg.outFname + '.pickle', 'wb') as fout:
     pickle.dump(cfg, fout)
 
 np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)
+
