@@ -16,21 +16,22 @@ matplotlib.use("GTK3Agg")
 
 cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'second_block.h5'
+                          'trace'    : 'third_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,30,20,16,0).timestamp(),
-                          'stop'   : datetime(2019,3,31,1,4,0).timestamp()
+           'time'     : { 'start' : datetime(2019,4,4,21,51,0).timestamp(),
+                          'stop'   : datetime(2019,4,4,22,25,0).timestamp()
                         },
-           'filters'  : { 'opisEV' : (195,250), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
+           'filters'  : { 'undulatorEV' : (150,180), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
                           #'delay'       : (1260.6,1260.8), # comment out if there is only non-UV data in the block
-                          'retarder'    : (-1,1)
+                          'retarder'    : (-11,-9)
                         },
            'output'   : { 'img'  : './Plots/',  # where output images should be stored
                           'data' : './data/'    # where processed data should be stored
                         },
-           'UV'       : False,
-           'ROI'      : (30., 85.),  # eV region to be summed
-           'evStep'   : 1,  # frequency for binning
+           'UV'       : True,
+           'ROI'      : "all",  # eV region to be summed, either tuple or all
+           'PLC'      : False,  # photoline correction in region of interest
+           'evStep'   : 1.5,  # frequency for binning
            'ioChunkSize' : 50000
       }
 
@@ -44,7 +45,7 @@ tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
 
 pulses = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
 pulsesLims = (pulses.index[0], pulses.index[-1])
-#Filter only pulses with parameters in range
+
 pulses = filterPulses(pulses, cfg.filters)
 #Get corresponing shots
 assert len(pulses) != 0, "No pulses satisfy filter condition"
@@ -54,11 +55,11 @@ idx.close()
 shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
                                           'pulseId in pulses.index'] )
 
+if cfg.UV:
+    shotsData = shotsData.query('shotNum % 2 == 1')
+
 shotsData = shotsData.pivot_table(index="pulseId", columns="shotNum", values="GMD")
 shotsData = shotsData.where(shotsData >= .01).dropna() # remove data where fel was off
-
-if cfg.UV:
-    shotsData = shotsData.query('shotNum % 2 == 0')
 
 #Remove pulses with no corresponing shots
 pulses = pulses.drop( pulses.index.difference(shotsData.index) )
@@ -152,18 +153,30 @@ ax[1].set_xlabel("Kinetic Energy (eV)")
 cb.set_label("GMD normalised average Counts")
 
 # look at region of interest
-mask = (img == img) & (img.columns >= cfg.ROI[0]) & (img.columns <= cfg.ROI[1])
-roi = img[mask]
-roi_max = [ i.argmin() for i in img.values]
-roi_pl = [ img.values[i][roi_max[i]-25:roi_max[i]+25].sum() for i in range(len(img.values))]
-roi = roi.T.dropna().T
 
-ax[0].plot(roi.T.sum()/1000, roi.index, ".", label="Raw sum")
-ax[0].plot((roi.T.sum() - roi_pl)/1000, roi.index, ".", label="PL corrected")
+if cfg.ROI == "all":
+    roi = img
+    ax[0].plot(roi.T.sum()/1000, roi.index, ".")
+    ax[0].set_xlabel('Summed Counts (x1000)')
+else:
+    mask = (img == img) & (img.columns >= cfg.ROI[0]) & (img.columns <= cfg.ROI[1])
+    if cfg.PLC:
+        roi = img[mask]
+        roi_max = [ i.argmin() for i in img.values]
+        roi_pl = [ img.values[i][roi_max[i]-25:roi_max[i]+25].sum() for i in range(len(img.values))]
+        roi = roi.T.dropna().T
+        ax[0].plot(roi.T.sum()/1000, roi.index, ".", label="Raw sum")
+        ax[0].plot((roi.T.sum() - roi_pl)/1000, roi.index, ".", label="PL corrected")
+        ax[0].legend(loc=9)
+    else:
+        roi = img[mask].T.dropna().T
+        ax[0].plot(roi.T.sum()/1000, roi.index, ".", label="Raw sum")
+
+    ax[0].set_xlabel('Summed Counts over ROI {0}-{1} eV (x1000)'.format(cfg.ROI[0], cfg.ROI[1]))
+
 ax[0].set_ylabel('Photon Energy (eV)')
-ax[0].set_xlabel('Summed Counts over ROI {0}-{1} eV (x1000)'.format(cfg.ROI[0], cfg.ROI[1]))
-ax[0].set_ylim(202,246)
-ax[0].legend(loc=9)
+
+#ax[0].set_ylim(202,246)
 plt.tight_layout()
 plt.savefig(cfg.output.img + "nexafs_{0}.png".format(timetag), dpi=300)
 #plt.show()
