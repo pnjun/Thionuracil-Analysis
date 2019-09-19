@@ -13,19 +13,19 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'third_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,5,5,33,0).timestamp(),
-                          'stop'  : datetime(2019,4,5,8,11,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,1,50,0).timestamp(),
+                          'stop'  : datetime(2019,4,5,5,14,0).timestamp(),
                         },
            'filters'  : {
                           'waveplate'   : (10,15),
                           'retarder'    : (-15,-5)
                         },
            'delayBinStep'  : 0.1,
-           'energyBinStep' : 3,
+           'energyBinStep' : 1,
            'ioChunkSize'   : 200000,
            'gmdNormalize'  : True,
-           'useBAM'        : True,
-           'electronROIeV' : (102.5,107), #Integration region bounds in eV (electron kinetic energy)
+           'useBAM'        : False,
+           'electronROIeV' : (110,140), #Integration region bounds in eV (electron kinetic energy)
 
            'outFname'    : 'trnexafs'
       }
@@ -57,7 +57,7 @@ assert not pulses.opisEV.isnull().any(), "Some opisEV values are NaN"
 utils.plotParams(shotsData)
 
 #Add Bam info
-shotsNum = len(shotsData.index.levels[1]) / 2
+shotsNum = len(shotsData.index.levels[1]) // 2
 shotsData = shotsData.query('shotNum % 2 == 0')
 
 if cfg.useBAM:
@@ -81,6 +81,11 @@ energyBins = pulses.groupby   ( pd.cut( pulses.undulatorEV,
                                         np.arange(pulses.undulatorEV.min(),
                                                   pulses.undulatorEV.max(),
                                                   cfg.energyBinStep) ) )
+
+delays = np.array( [name.mid for name, _ in delayBins] )
+energy = np.array( [name.mid for name, _ in energyBins] )
+print ("Delays:   ", delays)
+print ("energies: ", energy)
 
 assert len(delayBins) > 0, "No delay bins"
 
@@ -126,11 +131,10 @@ tr.close()
 img /= binCount
 
 #plot resulting image
-delays = np.array( [name.mid for name, _ in delayBins] )
-energy = np.array( [name.mid for name, _ in energyBins] )
 
-cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.1
-plt.pcolor(delays, energy, img, cmap='bwr', vmax=cmax, vmin=-cmax)
+#cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()
+plt.pcolor(delays, energy, img, cmap='bwr')
+#plt.pcolor(delays, energy, img, cmap='bwr', vmax=cmax, vmin=-cmax)
 plt.show()
 
 

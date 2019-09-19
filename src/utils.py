@@ -46,7 +46,7 @@ def shotsDelay(delaysData, bamData=None, shotsNum = None):
         bam = cp.array(bamData)
         shiftBAM[delaysData.shape[0], shotsNum](bam,delay)
     else:
-        assert shotsNum is not None, "if bamData is none shotsNum must be given"
+        assert isinstance(shotsNum, int), "if bamData is none shotsNum must be a valid int"
 
         bam = cp.empty(delaysData.shape[0] * shotsNum)
         propagateDelay[delaysData.shape[0], shotsNum](bam,delay)
