@@ -14,25 +14,24 @@ import cupy as cp
 import matplotlib
 matplotlib.use("GTK3Agg")
 
-from scipy.optimize import curve_fit
-from scipy.signal import argrelextrema
-
 cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'third_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,5,19,16,0).timestamp(),
-                          'stop'   : datetime(2019,4,5,20,32,0).timestamp()
+           'time'     : { 'start' : datetime(2019,4,4,21,51,0).timestamp(),
+                          'stop'   : datetime(2019,4,4,22,25,0).timestamp()
                         },
-           'filters'  : { 'opisEV' : (150,185), # replace with opisEV if opis column contains reasonable values
-                          'delay'       : (1263,1264), # comment out if there is only non-UV data in the block
-                          'retarder'    : (-6,-4)
+           'filters'  : { 'undulatorEV' : (150,180), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
+                          #'delay'       : (1260.6,1260.8), # comment out if there is only non-UV data in the block
+                          'retarder'    : (-11,-9)
                         },
            'output'   : { 'img'  : './Plots/',  # where output images should be stored
                           'data' : './data/'    # where processed data should be stored
                         },
-           'ROI'      : (130., 150.),  # eV region to be summed
-           'evStep'   : 0.75,  # frequency for binning
+           'UV'       : True,
+           'ROI'      : "all",  # eV region to be summed, either tuple or all
+           'PLC'      : False,  # photoline correction in region of interest
+           'evStep'   : 1.5,  # frequency for binning
            'ioChunkSize' : 50000
       }
 
@@ -46,7 +45,7 @@ tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
 
 pulses = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
 pulsesLims = (pulses.index[0], pulses.index[-1])
-#Filter only pulses with parameters in range
+
 pulses = filterPulses(pulses, cfg.filters)
 #Get corresponing shots
 assert len(pulses) != 0, "No pulses satisfy filter condition"
@@ -55,6 +54,9 @@ idx.close()
 
 shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
                                           'pulseId in pulses.index'] )
+
+if cfg.UV:
+    shotsData = shotsData.query('shotNum % 2 == 1')
 
 shotsData = shotsData.pivot_table(index="pulseId", columns="shotNum", values="GMD")
 shotsData = shotsData.where(shotsData >= .01).dropna() # remove data where fel was off
@@ -74,10 +76,24 @@ except AttributeError:
 
 # bin pulse energies to photon energy
 intervals = pd.interval_range(start=evLim[0], end=evLim[1], freq=cfg.evStep)
+#left = [161, 162.5, 163.5, 164.5, 165.25, 166, 166.75, 167.5, 169.0, 170.5, 172]
+#right = [162, 163.5, 164.5, 165, 165.75, 166.5, 167.25, 168.5, 170, 171.5, 173]
+#intervals = pd.IntervalIndex.from_arrays(left, right)
 evBin = pd.cut(photEn, intervals)
-gmdBin = shotsData.mean(axis=1).groupby(evBin).mean()
+gmdBin = shotsData.mean(axis=1).groupby(evBin)
+gmdStat = gmdBin.agg(["mean", "std", "count"])
+gmdBin = gmdBin.mean()
 opisBin = photEn.groupby(evBin).mean()
 
+# plot number of bunches per bin and average gmd per bin
+f1, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+ax1.plot(opisBin, gmdStat["count"] / 1000, ".")
+ax1.set_ylabel("Number of MBs (x1000)")
+ax2.errorbar(opisBin.dropna().values, gmdStat["mean"].dropna().values, fmt=".", yerr=gmdStat["std"].dropna().values)
+ax2.set_xlabel("Photon Energy (eV)")
+ax2.set_ylabel("Mean GMD value")
+plt.tight_layout()
+plt.savefig(cfg.output.img + "nexafs_{0}_stats.png".format(timetag), dpi=300)
 
 # look at actual tof data
 shotsTof  = tr.select('shotsTof',
@@ -124,27 +140,44 @@ img = pd.DataFrame(data=img, index=opisBin.values, columns=evs, dtype="float64")
 # save this dataframe to text file
 img.to_csv(cfg.output.data + "nexafs_{0}.csv".format(timetag), header=True, index=True , mode="w")
 
-# make a plot
-f3 = plt.figure()
-cm = plt.pcolormesh(img.columns.values, img.index.values, img.values)#, cmap="bwr", vmin=-cmax, vmax=cmax)
-cb = plt.colorbar(cm)
-plt.xlabel("kinetic energy (ev)")
-plt.ylabel("photon energy (ev)")
-plt.tight_layout()
-plt.savefig(cfg.output.img + "nexafs_{0}.png".format(timetag))
-
-# look at region of interest
 #img = pd.read_csv(cfg.output.data + "nexafs_{0}.csv".format(timetag), header=0, index_col=0)
 #img.columns = img.columns.astype('float64')
-mask = (img == img) & (img.columns >= cfg.ROI[0]) & (img.columns <= cfg.ROI[1])
-roi = img[mask].T.dropna().T
+d = np.array([i - i.max() for i in img.values])
+img = pd.DataFrame(data=d, columns=img.columns, index=img.index)
 
-f4 = plt.figure()
-plt.plot(roi.index, roi.T.sum(), ".")
-plt.xlabel('Photon energy (eV)')
-plt.ylabel('Summed signal (arb. units)')
-plt.title("Binned: {0} - {1} eV".format(cfg.ROI[0], cfg.ROI[1]))
+# make a plot
+f2, ax = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={'width_ratios': [2, 3]})
+cm = ax[1].pcolormesh(img.columns.values, img.index.values, img.values, cmap="cividis")
+cb = plt.colorbar(cm)
+ax[1].set_xlabel("Kinetic Energy (eV)")
+cb.set_label("GMD normalised average Counts")
+
+# look at region of interest
+
+if cfg.ROI == "all":
+    roi = img
+    ax[0].plot(roi.T.sum()/1000, roi.index, ".")
+    ax[0].set_xlabel('Summed Counts (x1000)')
+else:
+    mask = (img == img) & (img.columns >= cfg.ROI[0]) & (img.columns <= cfg.ROI[1])
+    if cfg.PLC:
+        roi = img[mask]
+        roi_max = [ i.argmin() for i in img.values]
+        roi_pl = [ img.values[i][roi_max[i]-25:roi_max[i]+25].sum() for i in range(len(img.values))]
+        roi = roi.T.dropna().T
+        ax[0].plot(roi.T.sum()/1000, roi.index, ".", label="Raw sum")
+        ax[0].plot((roi.T.sum() - roi_pl)/1000, roi.index, ".", label="PL corrected")
+        ax[0].legend(loc=9)
+    else:
+        roi = img[mask].T.dropna().T
+        ax[0].plot(roi.T.sum()/1000, roi.index, ".", label="Raw sum")
+
+    ax[0].set_xlabel('Summed Counts over ROI {0}-{1} eV (x1000)'.format(cfg.ROI[0], cfg.ROI[1]))
+
+ax[0].set_ylabel('Photon Energy (eV)')
+
+#ax[0].set_ylim(202,246)
 plt.tight_layout()
-plt.savefig(cfg.output.img + "nexafs_binned_{0}-{1}ev_{2}.png".format(cfg.ROI[0], cfg.ROI[1], timetag))
-plt.show()
-
+plt.savefig(cfg.output.img + "nexafs_{0}.png".format(timetag), dpi=300)
+#plt.show()
+plt.close("all")

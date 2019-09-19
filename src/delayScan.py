@@ -13,22 +13,26 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'first_block.h5'
                         },
-           #'time'     : { 'start' : datetime(2019,3,26,16,4,0).timestamp(),
-           #              'stop'  : datetime(2019,3,26,23,59,0).timestamp(),
-           'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,22,51,0).timestamp(),
+                         'stop'  : datetime(2019,3,26,22,59,0).timestamp(),
+           #'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
+           #               'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (269,274),
                           'retarder'    : (-81,-79),
-                          'waveplate'   : (37,45)
+                          'waveplate'   : (39,45)
                         },
+<<<<<<< HEAD
+           'delayBinStep': 0.02,
+=======
            #'delayBinStep': 0.05,
            'delayBinNum' : 100,
+>>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
            'ioChunkSize' : 200000,
            'gmdNormalize': False,
-           'useBAM'      : True,
+           'useBAM'      : False,
 
-           'outFname'    : 'results_bam=True'
+           'outFname'    : '2019_3_29_22_51-59_bam=False'
       }
 
 cfg = AttrDict(cfg)
@@ -66,9 +70,27 @@ shotsData = shotsData.query('shotNum % 2 == 0') #Remove unpumped pulses
 if cfg.useBAM:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 else:
+<<<<<<< HEAD
+    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
+
+#Show histogram and get center point for binning
+shotsData.delay.hist(bins=100)
+def getBinStart(event):
+    global binStart
+    binStart = event.xdata
+def getBinEnd(event):
+    global binEnd
+    binEnd = event.xdata
+    plt.close(event.canvas.figure)
+plt.gcf().suptitle("Drag over ROI for binning")
+plt.gcf().canvas.mpl_connect('button_press_event', getBinStart)
+plt.gcf().canvas.mpl_connect('button_release_event', getBinEnd)
+plt.show()
+=======
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
 
 binStart, binEnd = utils.getROI(shotsData)
+>>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
 
 print(f"Loading {shotsData.shape[0]} shots")
 print(f"Binning interval {binStart} : {binEnd}")
@@ -103,8 +125,14 @@ for counter, chunk in enumerate(shotsTof):
 idx.close()
 tr.close()
 
-#average all chunks, counter + 1 is the total number of chunks we loaded
 img /= binCount[:,None]
+
+#average all chunks, counter + 1 is the total number of chunks we loaded
+#print("binCount[:,None]:", binCount[:,None])
+
+#plt.plot(binCount[:,None])
+#plt.show()
+
 #get axis labels
 delays = np.array( [name.mid for name, _ in bins] )
 evConv = utils.mainTofEvConv(pulses.retarder.mean())
@@ -134,4 +162,9 @@ results[0,1:] = evs
 with open(cfg.outFname + '.pickle', 'wb') as fout:
     pickle.dump(cfg, fout)
 
+<<<<<<< HEAD
+np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)
+
+=======
 np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)'''
+>>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
