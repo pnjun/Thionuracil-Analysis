@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import h5py
 from datetime import datetime
 from attrdict import AttrDict
 
@@ -16,20 +17,20 @@ matplotlib.use("GTK3Agg")
 
 cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'third_block.h5'
+                          'trace'    : 'second_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,6,16,2,0).timestamp(),
-                          'stop'  : datetime(2019,4,6,18,50,0).timestamp()
+           'time'     : { 'start' : datetime(2019,4,1,4,40,0).timestamp(),
+                          'stop'  : datetime(2019,4,1,7,3,0).timestamp()
                         },
-           'filters'  : { 'undulatorEV' : (160,180), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
-                          'delay'       : (1261.35,1261.45), # comment out if there is only non-UV data in the block
-                          'retarder'    : (-11,-9)
+           'filters'  : { 'undulatorEV' : (211.5,223.5), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
+                          'delay'       : (1256.95,1257.05), # comment out if there is only non-UV data in the block
+                          #'waveplate'   : (13.0, 13.5),
+                          'retarder'    : (-6,-4)
                         },
            'output'   : { 'img'  : './Plots/',  # where output images should be stored
                           'data' : './data/'    # where processed data should be stored
                         },
-           'UV'       : True,  # True, if you want to distinguish between even (pumped) and odd (unpumped) shots in a macrobunch
-           'ROI'      : "all",  # eV region to be summed, either tuple or all
+           'ROI'      : (30,80),  # eV region to be summed, either tuple or all
            'PLC'      : False,  # photoline correction in region of interest
            'evStep'   : 1.5,  # frequency for binning
            'ioChunkSize' : 50000
@@ -37,8 +38,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
 
 cfg = AttrDict(cfg)
 
-timetag = "S2p_+200fs_02"#'{0}-{1}'.format(datetime.fromtimestamp(cfg.time.start).isoformat(),
-          #                 datetime.fromtimestamp(cfg.time.stop).isoformat())
+tag = "S2s_01_-300fs"
 
 idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
 tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
@@ -79,10 +79,10 @@ except AttributeError:
 # first, create intervals
 # for equally spaced energy steps use the first intervals variable and comment out the following 3 lines
 # for weirdly spaced energy steps use the other three lines and define interval borders with left and right
-#intervals = pd.interval_range(start=evLim[0], end=evLim[1], freq=cfg.evStep)
-left = [161, 162.5, 163.5, 164.5, 165.25, 166, 166.75, 167.5, 169.0, 170.5, 172]
-right = [162, 163.5, 164.5, 165, 165.75, 166.5, 167.25, 168.5, 170, 171.5, 173]
-intervals = pd.IntervalIndex.from_arrays(left, right)
+intervals = pd.interval_range(start=evLim[0], end=evLim[1], freq=cfg.evStep)
+#left = [161, 162.5, 163.5, 164.5, 165.25, 166, 166.75, 167.5, 169.0, 170.5, 172]
+#right = [162, 163.5, 164.5, 165, 165.75, 166.5, 167.25, 168.5, 170, 171.5, 173]
+#intervals = pd.IntervalIndex.from_arrays(left, right)
 evBin = pd.cut(photEn, intervals)
 gmdBinWUV = gmdWUV.mean(axis=1).groupby(evBin).agg(["sum", "mean", "std", "count"])
 gmdBinNUV = gmdNUV.mean(axis=1).groupby(evBin).agg(["sum", "mean", "std", "count"])
@@ -129,11 +129,6 @@ evs = evConv(tofs.to_numpy(dtype=np.float64))
 imgWUV = pd.DataFrame(data=imgWUV, index=opisBin.values, columns=evs, dtype="float64").dropna()
 imgNUV = pd.DataFrame(data=imgNUV, index=opisBin.values, columns=evs, dtype="float64").dropna()
 
-# save this dataframe to text file
-imgWUV.to_csv(cfg.output.data + "nexafs_{0}_wuv.csv".format(timetag), header=True, index=True , mode="w")
-imgNUV.to_csv(cfg.output.data + "nexafs_{0}_nuv.csv".format(timetag), header=True, index=True , mode="w")
-
-# preparing stuff for plotting
 # changing the offset so that data has same sign everywhere
 
 d = np.array([i - i.max() for i in imgWUV.values])
@@ -142,46 +137,90 @@ d = np.array([i - i.max() for i in imgNUV.values])
 imgNUV = pd.DataFrame(data=d, columns=imgNUV.columns, index=imgNUV.index)
 del d
 
-def plot_stuff(dataframe, roi, outfolder, tag, plc=False):
+# calculate average, difference and projections of ROIs
 
-    f, ax = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={"width_ratios":[2, 3]})
+aver = pd.DataFrame((imgWUV.values + imgNUV.values) / 2, index=imgNUV.index, columns=evs, dtype="float64")
+diff = pd.DataFrame(imgWUV.values - imgNUV.values, index=imgNUV.index, columns=evs, dtype="float64")
 
-    cm = ax[1].pcolormesh(dataframe.columns.values, dataframe.index.values, dataframe.values, cmap="cividis")
-    cb = plt.colorbar(cm)
-    ax[1].set_xlabel("Kinetic Energy (eV)")
-    cb.set_label("GMD Normalised Signal")
+def roi_sum(dataframe, region_of_interest, plc=False):
 
-    if roi == "all":
-        ax[0].plot(dataframe.T.sum()/1000, dataframe.index, ".")
-        ax[0].set_xlabel('Summed Counts (x1000)')
+    if region_of_interest == "all":
+        df_sum = dataframe.T.sum()
     else:
-        mask = (dataframe == dataframe) & (dataframe.columns >= roi[0]) & (dataframe.columns <= roi[1])
+        mask = (dataframe == dataframe) & (dataframe.columns >= region_of_interest[0]) & (dataframe.columns <= region_of_interest[1])
         if plc:
-            d = dataframe[mask]
-            d_max = [ i.argmin() for i in dataframe.values]
-            d_pl = [ dataframe.values[i][d_max[i]-25:d_max[i]+25].sum() for i in range(len(dataframe.values))]
-            d = d.T.dropna().T
-            ax[0].plot(d.T.sum()/1000, d.index, ".", label="Raw sum")
-            ax[0].plot((d.T.sum() - d_pl)/1000, roi.index, ".", label="PL corrected")
-            ax[0].legend(loc=9)
-        else:
-            d = dataframe[mask].T.dropna().T
-            ax[0].plot(d.T.sum()/1000, d.index, ".", label="Raw sum")
+            print("Photoline correction not implemented yet.")
+        df_sum = dataframe[mask].T.dropna().sum()
 
-        ax[0].set_xlabel('Summed Counts over ROI {0}-{1} eV (x1000)'.format(roi[0], roi[1]))
+    return df_sum
 
-    ax[0].set_ylabel('Photon Energy (eV)')
+inuv_sum = roi_sum(imgNUV, cfg.ROI, cfg.PLC)
+iwuv_sum = roi_sum(imgWUV, cfg.ROI, cfg.PLC)
+aver_sum = roi_sum(aver, cfg.ROI, cfg.PLC)
+diff_sum = roi_sum(diff, cfg.ROI, cfg.PLC)
 
-    plt.tight_layout()
-    plt.savefig(outfolder + "nexafs_{0}.png".format(tag), dpi=300)
-    #plt.show()
-    plt.close("all")
+# store data in new hdf file
+
+hdf = h5py.File(cfg.output.data+tag+".h5", "w")
+group = hdf.create_group("processed_data")
+group.create_dataset("Ekin", data=evs, dtype=float)
+group.create_dataset("Ephot", imgNUV.index.values, dtype=float)
+group.create_dataset("unpumped_nexafs", data=imgNUV.values, dtype=float)
+group.create_dataset("pumped_nexafs", data=imgWUV.values, dtype=float)
+group.create_dataset("averaged_nexafs", data=aver.values, dtype=float)
+group.create_dataset("difference_nexafs", data=diff.values, dtype=float)
+group.create_dataset("unpumped_roi_sum", data=inuv_sum.values, dtype=float)
+group.create_dataset("pumped_roi_sum", data=iwuv_sum.values, dtype=float)
+group.create_dataset("average_roi_sum", data=aver_sum.values, dtype=float)
+group.create_dataset("difference_roi_sum", data=diff_sum.values, dtype=float)
+hdf.close()
 
 
-plot_stuff(imgWUV, cfg.ROI, cfg.output.img, timetag+"_wuv")
-plot_stuff(imgNUV, cfg.ROI, cfg.output.img, timetag+"_nuv")
-aver = pd.DataFrame((imgWUV.values + imgNUV.values) / 2, index=imgWUV.index, columns=imgWUV.columns)
-plot_stuff(aver, cfg.ROI, cfg.output.img, timetag+"_aver")
-diff = pd.DataFrame(imgWUV.values - imgNUV.values, index=imgWUV.index, columns=imgWUV.columns)
-plot_stuff(diff, cfg.ROI, cfg.output.img, timetag+"_diff")
+# plot pumped and unpumed nexafs maps in one figure for comparison
+f1, ax1 = plt.subplots(1, 2, sharey=True, figsize=(10,4))
+cm11 = ax1[0].pcolormesh(imgNUV.columns.values, imgNUV.index.values, imgNUV.values, cmap="cividis", vmax=0, vmin=-300)
+cm12 = ax1[1].pcolormesh(imgWUV.columns.values, imgWUV.index.values, imgWUV.values, cmap="cividis", vmax=0, vmin=-300)
+cb1 = plt.colorbar(cm11)
+ax1[0].set_xlabel("Kinetic Energy (eV)")
+ax1[0].set_ylabel("Photon Energy (eV)")
+ax1[0].set_title("unpumped")
+ax1[1].set_xlabel("Kinetic Energy (eV)")
+ax1[1].set_title("UV pumped")
+cb1.set_label("GMD Normalised Signal)")
+plt.tight_layout()
+plt.savefig(cfg.output.img+tag+"_map_comp.png", dpi=100)
 
+# plot average nexafs map
+f2, ax2 = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={"width_ratios":[2, 3]})
+ax2[0].plot(aver_sum.values, aver.index.values, ".")
+ax2[0].set_xlabel("Summed Signal")
+ax2[0].set_ylabel("Photon Energy (eV)")
+cm2 = ax2[1].pcolormesh(aver.columns.values, aver.index.values, aver.values, cmap="cividis")
+cb2 = plt.colorbar(cm2)
+ax2[1].set_xlabel("Kinetic Energy (eV)")
+cb2.set_label("GMD Normalised Signal")
+plt.tight_layout()
+plt.savefig(cfg.output.img+tag+"_average.png", dpi=100)
+
+# plot difference nexafs_map
+f3, ax3 = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={"width_ratios":[2, 3]})
+ax3[0].plot(diff_sum.values, diff.index.values, ".")
+ax3[0].set_xlabel("Summed Signal")
+ax3[0].set_ylabel("Photon Energy (eV)")
+cm3 = ax3[1].pcolormesh(diff.columns.values, diff.index.values, aver.values, cmap="cividis")
+cb3 = plt.colorbar(cm3)
+ax3[1].set_xlabel("Kinetic Energy (eV)")
+cb3.set_label("GMD Normalised Signal")
+plt.tight_layout()
+plt.savefig(cfg.output.img+tag+"_diff.png", dpi=100)
+
+# plot roi sums of unpumped and pumped
+f4 = plt.figure()
+plt.plot(inuv.index.values, inuv.values, ".", label="unpumped")
+plt.plot(iwuv.index.values, iwuv.values, ".", label="pumped")
+plt.xlabel("Photon Energy (eV)")
+plt.ylabel("Summed Signal (ROI)")
+plt.legend()
+plt.tight_layout()
+plt.savefig(cfg.output.img+tag+"_roi_comp.png", dpi=100)
+plt.close("all")
