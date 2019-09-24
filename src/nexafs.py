@@ -22,15 +22,15 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
            'time'     : { 'start' : datetime(2019,4,1,4,40,0).timestamp(),
                           'stop'  : datetime(2019,4,1,7,3,0).timestamp()
                         },
-           'filters'  : { 'undulatorEV' : (211.5,223.5), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
+           'filters'  : { 'opisEV' : (216,228), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
                           'delay'       : (1256.95,1257.05), # comment out if there is only non-UV data in the block
-                          #'waveplate'   : (13.0, 13.5),
+                          'waveplate'   : (13.0, 13.5),
                           'retarder'    : (-6,-4)
                         },
            'output'   : { 'img'  : './Plots/',  # where output images should be stored
                           'data' : './data/'    # where processed data should be stored
                         },
-           'ROI'      : (30,80),  # eV region to be summed, either tuple or all
+           'ROI'      : (30, 80),  # eV region to be summed, either tuple or all
            'PLC'      : False,  # photoline correction in region of interest
            'evStep'   : 1.5,  # frequency for binning
            'ioChunkSize' : 50000
@@ -38,7 +38,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
 
 cfg = AttrDict(cfg)
 
-tag = "S2s_01_-300fs"
+# change tag if you change parameters above!!!!
+tag = "S2s_01_3080_-300fs"
 
 idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
 tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
@@ -121,11 +122,11 @@ imgWUV /= gmdBinWUV["mean"][:,None]  # normalise average tof traces on average g
 imgNUV /= binCount[:,None]
 imgNUV /= gmdBinNUV["mean"][:,None]
 
-# calulate eVs
+# calulate kinetic energy
 evConv = mainTofEvConv(pulses.retarder.mean())
 evs = evConv(tofs.to_numpy(dtype=np.float64))
 
-# make proper pandas dataframe
+# make pandas dataframe
 imgWUV = pd.DataFrame(data=imgWUV, index=opisBin.values, columns=evs, dtype="float64").dropna()
 imgNUV = pd.DataFrame(data=imgNUV, index=opisBin.values, columns=evs, dtype="float64").dropna()
 
@@ -164,7 +165,7 @@ diff_sum = roi_sum(diff, cfg.ROI, cfg.PLC)
 hdf = h5py.File(cfg.output.data+tag+".h5", "w")
 group = hdf.create_group("processed_data")
 group.create_dataset("Ekin", data=evs, dtype=float)
-group.create_dataset("Ephot", imgNUV.index.values, dtype=float)
+group.create_dataset("Ephot", data=imgNUV.index.values, dtype=float)
 group.create_dataset("unpumped_nexafs", data=imgNUV.values, dtype=float)
 group.create_dataset("pumped_nexafs", data=imgWUV.values, dtype=float)
 group.create_dataset("averaged_nexafs", data=aver.values, dtype=float)
@@ -188,7 +189,8 @@ ax1[1].set_xlabel("Kinetic Energy (eV)")
 ax1[1].set_title("UV pumped")
 cb1.set_label("GMD Normalised Signal)")
 plt.tight_layout()
-plt.savefig(cfg.output.img+tag+"_map_comp.png", dpi=100)
+plt.savefig(cfg.output.img+tag+"_map_comp.png", dpi=150)
+plt.close(f1)
 
 # plot average nexafs map
 f2, ax2 = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={"width_ratios":[2, 3]})
@@ -200,27 +202,29 @@ cb2 = plt.colorbar(cm2)
 ax2[1].set_xlabel("Kinetic Energy (eV)")
 cb2.set_label("GMD Normalised Signal")
 plt.tight_layout()
-plt.savefig(cfg.output.img+tag+"_average.png", dpi=100)
+plt.savefig(cfg.output.img+tag+"_average.png", dpi=150)
+plt.close(f2)
 
 # plot difference nexafs_map
 f3, ax3 = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={"width_ratios":[2, 3]})
 ax3[0].plot(diff_sum.values, diff.index.values, ".")
 ax3[0].set_xlabel("Summed Signal")
 ax3[0].set_ylabel("Photon Energy (eV)")
-cm3 = ax3[1].pcolormesh(diff.columns.values, diff.index.values, aver.values, cmap="cividis")
+cm3 = ax3[1].pcolormesh(diff.columns.values, diff.index.values, diff.values, cmap="cividis")
 cb3 = plt.colorbar(cm3)
 ax3[1].set_xlabel("Kinetic Energy (eV)")
 cb3.set_label("GMD Normalised Signal")
 plt.tight_layout()
-plt.savefig(cfg.output.img+tag+"_diff.png", dpi=100)
+plt.savefig(cfg.output.img+tag+"_diff.png", dpi=150)
+plt.close(f3)
 
 # plot roi sums of unpumped and pumped
 f4 = plt.figure()
-plt.plot(inuv.index.values, inuv.values, ".", label="unpumped")
-plt.plot(iwuv.index.values, iwuv.values, ".", label="pumped")
+plt.plot(inuv_sum.index.values, inuv_sum.values, ".", label="unpumped")
+plt.plot(iwuv_sum.index.values, iwuv_sum.values, ".", label="pumped")
 plt.xlabel("Photon Energy (eV)")
 plt.ylabel("Summed Signal (ROI)")
 plt.legend()
 plt.tight_layout()
-plt.savefig(cfg.output.img+tag+"_roi_comp.png", dpi=100)
-plt.close("all")
+plt.savefig(cfg.output.img+tag+"_roi_comp.png", dpi=150)
+plt.close(f4)
