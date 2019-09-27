@@ -6,8 +6,7 @@ import h5py
 from datetime import datetime
 from attrdict import AttrDict
 
-from utils import mainTofEvConv
-from utils import filterPulses
+from utils import mainTofEvConv, filterPulses, shotsDelay
 
 from numba import cuda
 import cupy as cp
@@ -17,29 +16,29 @@ matplotlib.use("GTK3Agg")
 
 cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'third_block.h5'
+                          'trace'    : 'second_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,5,1,50,0).timestamp(),
-                          'stop'  : datetime(2019,4,5,8,11,0).timestamp()
+           'time'     : { 'start' : datetime(2019,4,1,4,40,0).timestamp(),
+                          'stop'  : datetime(2019,4,1,7,3,0).timestamp()
                         },
-           'filters'  : { 'undulatorEV' : (216,228), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
-                          'delay'       : (1259.75,1260.27), # comment out if there is only non-UV data in the block
+           'filters'  : { 'opisEV' : (211,223), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
                           'waveplate'   : (13.0, 13.5),
-                          'retarder'    : (-11,-9)
+                          'retarder'    : (-6,4)
                         },
+           'delay'     : (1256.15,1256.67), # comment out if there is only non-UV data in the block}
            'output'   : { 'img'  : './Plots/',  # where output images should be stored
                           'data' : './data/'    # where processed data should be stored
                         },
            'ROI'      : (30, 80),  # eV region to be summed, either tuple or all
            'PLC'      : False,  # photoline correction in region of interest
-           'evStep'   : 1.75,  # frequency for binning
+           'evStep'   : 1.,  # frequency for binning
            'ioChunkSize' : 50000
       }
 
 cfg = AttrDict(cfg)
 
 # change tag if you change parameters above!!!!
-tag = "S2s_02_3080_+050-500fs"
+tag = "S2s_01_+050-500fs"
 
 idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
 tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
@@ -57,11 +56,27 @@ idx.close()
 # Get UV and GMD data for shots
 print("Load shotsData ...")
 shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]', 'pulseId in pulses.index'] )
+pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
+
+# BAM correction
+print("Making BAM correction for delays ...")
+BAM_mean = shotsData.BAM.mean()
+BAM_std = shotsData.BAM.std()
+print(f"Average shift will be: {BAM_mean:.3f} +- {BAM_std:.3f}")
+delayfilter = {"delay" : (cfg.delay[0] + BAM_mean, cfg.delay[1] + BAM_mean)}
+delayfilter = AttrDict(delayfilter)
+shotsData['delay'] = shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
+print(f"New delay filter is: ({delayfilter.delay[0]:.3f}, {delayfilter.delay[1]:.3f}). Filtering shotsData accordingly ...")
+shotsData = filterPulses(shotsData, delayfilter)
+assert len(shotsData) != 0, "No data satisfies filter condition in shotsData."
+
 print("Filter outlayers in GMD and uvPow ...")
 shotsData = shotsData.query("GMD > 1 & uvPow < 3000")
 print("Separate even and odd shots ...")
 sdEven = shotsData.query("shotNum % 2 == 0")
 sdOdd = shotsData.query("shotNum % 2 == 1")
+
+#print(sdEven.index.levels[0].size, sdOdd.index.levels[0].size)
 
 # plot histograms
 print("Plot histograms for GMD and uvPow ...")
@@ -97,16 +112,26 @@ gmdOdd = sdOdd.pivot_table(index="pulseId", columns="shotNum", values="GMD")
 uvEven = sdEven.pivot_table(index="pulseId", columns="shotNum", values="uvPow")
 uvOdd = sdOdd.pivot_table(index="pulseId", columns="shotNum", values="uvPow")
 
+#print(gmdEven.index.size, gmdOdd.index.size)
+#print(uvEven.index.size, uvOdd.index.size)
+
 print("Check and correct dataframe sizes ...")
 if gmdEven.index.size > gmdOdd.index.size:
     gmdEven = gmdEven.drop(gmdEven.index.difference(gmdOdd.index))
+    gmdOdd = gmdOdd.drop(gmdOdd.index.difference(gmdEven.index))
 elif gmdEven.index.size < gmdOdd.index.size:
+    gmdEven = gmdEven.drop(gmdEven.index.difference(gmdOdd.index))
     gmdOdd = gmdOdd.drop(gmdOdd.index.difference(gmdEven.index))
 
 if uvEven.index.size > uvOdd.index.size:
     uvEven = uvEven.drop(uvEven.index.difference(uvOdd.index))
-elif uvEven.index.size < uvOdd.index.size:
     uvOdd = uvOdd.drop(uvOdd.index.difference(uvEven.index))
+elif uvEven.index.size < uvOdd.index.size:
+    uvEven = uvEven.drop(uvEven.index.difference(uvOdd.index))
+    uvOdd = uvOdd.drop(uvOdd.index.difference(uvEven.index))
+
+#print(gmdEven.index.size, gmdOdd.index.size)
+#print(uvEven.index.size, uvOdd.index.size)
 
 # Remove pulses with no corresponing shots
 pulses = pulses.drop( pulses.index.difference(gmdEven.index) )
@@ -322,3 +347,4 @@ plt.tight_layout()
 plt.savefig(cfg.output.img+tag+"_roi_comp.png", dpi=150)
 plt.close(f4)
 print("Done :-)")
+
