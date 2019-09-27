@@ -25,7 +25,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'waveplate'   : (13.0, 13.5),
                           'retarder'    : (-6,4)
                         },
-           'delay'     : (1256.15,1256.67), # comment out if there is only non-UV data in the block}
+           'delay'     : (1256.15,1256.67), # comment out if there is only non-UV data in the block
            'output'   : { 'img'  : './Plots/',  # where output images should be stored
                           'data' : './data/'    # where processed data should be stored
                         },
@@ -59,16 +59,20 @@ shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId 
 pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 
 # BAM correction
-print("Making BAM correction for delays ...")
-BAM_mean = shotsData.BAM.mean()
-BAM_std = shotsData.BAM.std()
-print(f"Average shift will be: {BAM_mean:.3f} +- {BAM_std:.3f}")
-delayfilter = {"delay" : (cfg.delay[0] + BAM_mean, cfg.delay[1] + BAM_mean)}
-delayfilter = AttrDict(delayfilter)
-shotsData['delay'] = shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
-print(f"New delay filter is: ({delayfilter.delay[0]:.3f}, {delayfilter.delay[1]:.3f}). Filtering shotsData accordingly ...")
-shotsData = filterPulses(shotsData, delayfilter)
-assert len(shotsData) != 0, "No data satisfies filter condition in shotsData."
+try:
+    cfg.delay
+    print("Making BAM correction for delays ...")
+    BAM_mean = shotsData.BAM.mean()
+    BAM_std = shotsData.BAM.std()
+    print(f"Average shift will be: {BAM_mean:.3f} +- {BAM_std:.3f}")
+    delayfilter = {"delay" : (cfg.delay[0] + BAM_mean, cfg.delay[1] + BAM_mean)}
+    delayfilter = AttrDict(delayfilter)
+    shotsData['delay'] = shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
+    print(f"New delay filter is: ({delayfilter.delay[0]:.3f}, {delayfilter.delay[1]:.3f}). Filtering shotsData accordingly ...")
+    shotsData = filterPulses(shotsData, delayfilter)
+    assert len(shotsData) != 0, "No data satisfies filter condition in shotsData."
+except AttributeError:
+    print("Skipping BAM correction because there is no delay filter ...")
 
 print("Filter outlayers in GMD and uvPow ...")
 shotsData = shotsData.query("GMD > 1 & uvPow < 3000")
