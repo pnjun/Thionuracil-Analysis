@@ -68,7 +68,7 @@ shotsData = shotsData.query('shotNum % 2 == 0') #Remove unpumped pulses
 if cfg.useBAM:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 else:
-    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
+    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
 
 #Show histogram and get center point for binning
 shotsData.delay.hist(bins=100)
