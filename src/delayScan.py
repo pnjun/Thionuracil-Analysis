@@ -22,12 +22,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'retarder'    : (-81,-79),
                           'waveplate'   : (39,45)
                         },
-<<<<<<< HEAD
            'delayBinStep': 0.02,
-=======
+
            #'delayBinStep': 0.05,
            'delayBinNum' : 100,
->>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
            'ioChunkSize' : 200000,
            'gmdNormalize': False,
            'useBAM'      : False,
@@ -70,7 +68,6 @@ shotsData = shotsData.query('shotNum % 2 == 0') #Remove unpumped pulses
 if cfg.useBAM:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 else:
-<<<<<<< HEAD
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), None)
 
 #Show histogram and get center point for binning
@@ -86,11 +83,10 @@ plt.gcf().suptitle("Drag over ROI for binning")
 plt.gcf().canvas.mpl_connect('button_press_event', getBinStart)
 plt.gcf().canvas.mpl_connect('button_release_event', getBinEnd)
 plt.show()
-=======
-    shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
 
+shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
 binStart, binEnd = utils.getROI(shotsData)
->>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
+
 
 print(f"Loading {shotsData.shape[0]} shots")
 print(f"Binning interval {binStart} : {binEnd}")
@@ -161,10 +157,6 @@ results[0,1:] = evs
 
 with open(cfg.outFname + '.pickle', 'wb') as fout:
     pickle.dump(cfg, fout)
-
-<<<<<<< HEAD
 np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)
 
-=======
 np.savetxt(cfg.outFname + '.txt', results, header='first row: kinetic energies, first column: delays')#img)'''
->>>>>>> 667fa467cefeba57a635dec415e61b7da60d11b6
