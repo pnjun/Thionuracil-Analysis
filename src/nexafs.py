@@ -2,11 +2,11 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import h5py
 from datetime import datetime
 from attrdict import AttrDict
 
-from utils import mainTofEvConv
-from utils import filterPulses
+from utils import mainTofEvConv, filterPulses, shotsDelay
 
 from numba import cuda
 import cupy as cp
@@ -16,55 +16,133 @@ matplotlib.use("GTK3Agg")
 
 cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'third_block.h5'
+                          'trace'    : 'second_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,4,21,51,0).timestamp(),
-                          'stop'   : datetime(2019,4,4,22,25,0).timestamp()
+           'time'     : { 'start' : datetime(2019,4,1,4,40,0).timestamp(),
+                          'stop'  : datetime(2019,4,1,7,3,0).timestamp()
                         },
-           'filters'  : { 'undulatorEV' : (150,180), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
-                          #'delay'       : (1260.6,1260.8), # comment out if there is only non-UV data in the block
-                          'retarder'    : (-11,-9)
+           'filters'  : { 'opisEV' : (211,223), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
+                          'waveplate'   : (13.0, 13.5),
+                          'retarder'    : (-6,4)
                         },
+           'delay'     : (1256.15,1256.67), # comment out if there is only non-UV data in the block
            'output'   : { 'img'  : './Plots/',  # where output images should be stored
                           'data' : './data/'    # where processed data should be stored
                         },
-           'UV'       : True,
-           'ROI'      : "all",  # eV region to be summed, either tuple or all
+           'ROI'      : (30, 80),  # eV region to be summed, either tuple or all
            'PLC'      : False,  # photoline correction in region of interest
-           'evStep'   : 1.5,  # frequency for binning
+           'evStep'   : 1.,  # frequency for binning
            'ioChunkSize' : 50000
       }
 
 cfg = AttrDict(cfg)
 
-timetag = '{0}-{1}'.format(datetime.fromtimestamp(cfg.time.start).isoformat(),
-                           datetime.fromtimestamp(cfg.time.stop).isoformat())
+# change tag if you change parameters above!!!!
+tag = "S2s_01_+050-500fs"
 
 idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
 tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
 
+print("Selecting time intervall ...")
 pulses = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
 pulsesLims = (pulses.index[0], pulses.index[-1])
 
+print("Filter macrobunches by given filters ...")
 pulses = filterPulses(pulses, cfg.filters)
-#Get corresponing shots
 assert len(pulses) != 0, "No pulses satisfy filter condition"
 
 idx.close()
 
-shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
-                                          'pulseId in pulses.index'] )
+# Get UV and GMD data for shots
+print("Load shotsData ...")
+shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]', 'pulseId in pulses.index'] )
+pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 
-if cfg.UV:
-    shotsData = shotsData.query('shotNum % 2 == 1')
+# BAM correction
+try:
+    cfg.delay
+    print("Making BAM correction for delays ...")
+    BAM_mean = shotsData.BAM.mean()
+    BAM_std = shotsData.BAM.std()
+    print(f"Average shift will be: {BAM_mean:.3f} +- {BAM_std:.3f}")
+    delayfilter = {"delay" : (cfg.delay[0] + BAM_mean, cfg.delay[1] + BAM_mean)}
+    delayfilter = AttrDict(delayfilter)
+    shotsData['delay'] = shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
+    print(f"New delay filter is: ({delayfilter.delay[0]:.3f}, {delayfilter.delay[1]:.3f}). Filtering shotsData accordingly ...")
+    shotsData = filterPulses(shotsData, delayfilter)
+    assert len(shotsData) != 0, "No data satisfies filter condition in shotsData."
+except AttributeError:
+    print("Skipping BAM correction because there is no delay filter ...")
 
-shotsData = shotsData.pivot_table(index="pulseId", columns="shotNum", values="GMD")
-shotsData = shotsData.where(shotsData >= .01).dropna() # remove data where fel was off
+print("Filter outlayers in GMD and uvPow ...")
+shotsData = shotsData.query("GMD > 1 & uvPow < 3000")
+print("Separate even and odd shots ...")
+sdEven = shotsData.query("shotNum % 2 == 0")
+sdOdd = shotsData.query("shotNum % 2 == 1")
 
-#Remove pulses with no corresponing shots
-pulses = pulses.drop( pulses.index.difference(shotsData.index) )
+#print(sdEven.index.levels[0].size, sdOdd.index.levels[0].size)
+
+# plot histograms
+print("Plot histograms for GMD and uvPow ...")
+fig1, ax1 = plt.subplots(1, 2, figsize=(9,4))
+sdEven["GMD"].hist(ax=ax1[0], bins=100)
+sdOdd["GMD"].hist(ax=ax1[1], bins=100)
+ax1[0].set_xlabel("GMD")
+ax1[1].set_xlabel("GMD")
+ax1[0].set_ylabel("Counts")
+ax1[0].set_title("Even")
+ax1[1].set_title("Odd")
+plt.tight_layout()
+plt.savefig(cfg.output.img + tag + "_gmd_hist.png")
+plt.close(fig1)
+
+fig2, ax2 = plt.subplots(1, 2, figsize=(9,4))
+sdEven["uvPow"].hist(ax=ax2[0], bins=100)
+sdOdd["uvPow"].hist(ax=ax2[1], bins=100)
+ax2[0].set_xlabel("uv power")
+ax2[1].set_xlabel("uv power")
+ax2[0].set_ylabel("Shots")
+ax2[0].set_title("Even")
+ax2[1].set_title("Odd")
+plt.tight_layout()
+plt.savefig(cfg.output.img + tag + "_uv_hist.png")
+plt.close(fig2)
+
+# rearrange tables and separate between uv and gmd
+print("Separate even and odd dataframes in UV and GMD ...")
+gmdEven = sdEven.pivot_table(index="pulseId", columns="shotNum", values="GMD")
+gmdOdd = sdOdd.pivot_table(index="pulseId", columns="shotNum", values="GMD")
+
+uvEven = sdEven.pivot_table(index="pulseId", columns="shotNum", values="uvPow")
+uvOdd = sdOdd.pivot_table(index="pulseId", columns="shotNum", values="uvPow")
+
+#print(gmdEven.index.size, gmdOdd.index.size)
+#print(uvEven.index.size, uvOdd.index.size)
+
+print("Check and correct dataframe sizes ...")
+if gmdEven.index.size > gmdOdd.index.size:
+    gmdEven = gmdEven.drop(gmdEven.index.difference(gmdOdd.index))
+    gmdOdd = gmdOdd.drop(gmdOdd.index.difference(gmdEven.index))
+elif gmdEven.index.size < gmdOdd.index.size:
+    gmdEven = gmdEven.drop(gmdEven.index.difference(gmdOdd.index))
+    gmdOdd = gmdOdd.drop(gmdOdd.index.difference(gmdEven.index))
+
+if uvEven.index.size > uvOdd.index.size:
+    uvEven = uvEven.drop(uvEven.index.difference(uvOdd.index))
+    uvOdd = uvOdd.drop(uvOdd.index.difference(uvEven.index))
+elif uvEven.index.size < uvOdd.index.size:
+    uvEven = uvEven.drop(uvEven.index.difference(uvOdd.index))
+    uvOdd = uvOdd.drop(uvOdd.index.difference(uvEven.index))
+
+#print(gmdEven.index.size, gmdOdd.index.size)
+#print(uvEven.index.size, uvOdd.index.size)
+
+# Remove pulses with no corresponing shots
+pulses = pulses.drop( pulses.index.difference(gmdEven.index) )
 pulsesLims = (pulses.index[0], pulses.index[-1])
 
+# check whether OPIS or Undulator values are used
+print("Check if OPIS or Undulator values are used ...")
 evLim = None
 photEn = None
 try:
@@ -75,109 +153,202 @@ except AttributeError:
     photEn = pulses.undulatorEV
 
 # bin pulse energies to photon energy
+print("Bin stuff ...")
 intervals = pd.interval_range(start=evLim[0], end=evLim[1], freq=cfg.evStep)
-#left = [161, 162.5, 163.5, 164.5, 165.25, 166, 166.75, 167.5, 169.0, 170.5, 172]
-#right = [162, 163.5, 164.5, 165, 165.75, 166.5, 167.25, 168.5, 170, 171.5, 173]
-#intervals = pd.IntervalIndex.from_arrays(left, right)
 evBin = pd.cut(photEn, intervals)
-gmdBin = shotsData.mean(axis=1).groupby(evBin)
-gmdStat = gmdBin.agg(["mean", "std", "count"])
-gmdBin = gmdBin.mean()
-opisBin = photEn.groupby(evBin).mean()
+opisBin = photEn.groupby(evBin)
+gmdBinEven = gmdEven.mean(axis=1).groupby(evBin)
+gmdBinOdd = gmdOdd.mean(axis=1).groupby(evBin)
+uvBinEven = uvEven.mean(axis=1).groupby(evBin)
+uvBinOdd = uvOdd.mean(axis=1).groupby(evBin)
 
-# plot number of bunches per bin and average gmd per bin
-f1, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
-ax1.plot(opisBin, gmdStat["count"] / 1000, ".")
-ax1.set_ylabel("Number of MBs (x1000)")
-ax2.errorbar(opisBin.dropna().values, gmdStat["mean"].dropna().values, fmt=".", yerr=gmdStat["std"].dropna().values)
-ax2.set_xlabel("Photon Energy (eV)")
-ax2.set_ylabel("Mean GMD value")
+# do some plots
+
+try:
+    print("Plot Ephot histogram ...")
+    fig3, ax3 = plt.subplots(1, 1, figsize=(5,4))
+    opisBin.plot(kind="hist", ax=ax3)
+    ax3.set_xlabel("Photon energy (eV)")
+    plt.title("Photon energy bin histogram")
+    plt.tight_layout()
+    plt.savefig(cfg.output.img + tag + "_ephot_hist.png")
+    plt.close(fig3)
+except TypeError:
+    print("TypeError occured. Could not plot Ephot histogram due to missing data in bin. Continue anyways.")
+
+print("Plot mean values for binned GMD and uvPow ...")
+fig4, ax4 = plt.subplots(2, 2, figsize=(9, 9), sharex=True)
+ax4[0,0].errorbar(opisBin.mean().values, gmdBinEven.mean().values, fmt=".", yerr=gmdBinEven.std().values, label="Mean & Std.")
+ax4[0,0].plot(opisBin.mean().values, gmdBinEven.median().values, ".", label="Median")
+ax4[0,0].legend()
+ax4[0,0].set_title("GMD even")
+ax4[0,1].errorbar(opisBin.mean().values, gmdBinOdd.mean().values, fmt=".", yerr=gmdBinOdd.std().values, label="Mean")
+ax4[0,1].plot(opisBin.mean().values, gmdBinOdd.median().values, ".", label="Median")
+ax4[0,1].set_title("GMD odd")
+ax4[1,0].errorbar(opisBin.mean().values, uvBinEven.mean().values, fmt=".", yerr=uvBinEven.std().values, label="Mean & Std.")
+ax4[1,0].plot(opisBin.mean().values, uvBinEven.median().values, ".", label="Median")
+ax4[1,0].set_title("UV even")
+ax4[1,1].errorbar(opisBin.mean().values, uvBinOdd.mean().values, fmt=".", yerr=uvBinOdd.std().values, label="Mean & Std.")
+ax4[1,1].plot(opisBin.mean().values, uvBinOdd.median().values, ".", label="Median")
+ax4[1,1].set_title("UV Odd")
+ax4[1,0].set_xlabel("Photon energy (eV)")
+ax4[1,1].set_xlabel("Photon energy (eV)")
+ax4[0,0].set_ylabel("Gmd value")
+ax4[1,0].set_ylabel("Uv power")
 plt.tight_layout()
-plt.savefig(cfg.output.img + "nexafs_{0}_stats.png".format(timetag), dpi=300)
+plt.savefig(cfg.output.img + tag + "_eo_stat.png")
+plt.close(fig4)
 
-# look at actual tof data
+# now look at actual tof data
+print("Go through tof data now ...")
 shotsTof  = tr.select('shotsTof',
                       where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]', 'pulseId in pulses.index'],
                       iterator=True,
                       chunksize=cfg.ioChunkSize)
-img = np.zeros( ( len(intervals), 3000 ))
-gmd = np.zeros( len(intervals) )
+
+imgEven = np.zeros( ( len(intervals), 3000 ))
+imgOdd = np.zeros( ( len(intervals), 3000 ))
 binCount = np.zeros( len(intervals) )
 for counter, chunk in enumerate(shotsTof):
     c = 0
     print( f"processing chunk {counter}", end='\r' )
     idx = chunk.index.levels[0].values
-    #chunk = normToGmd(chunk, shotsData.loc[idx])
-    chunk = chunk.groupby(level=[0]).mean()
-    gmds = shotsData.loc[idx].mean(axis=1)
+    chunkEven = chunk.query("shotNum % 2 == 0").groupby(level=[0]).mean()
+    chunkOdd = chunk.query("shotNum % 2 == 1").groupby(level=[0]).mean()
     shotsBins = pd.cut(photEn.loc[idx], intervals)
-    tofs = pd.DataFrame(chunk.groupby(shotsBins).mean().to_numpy())
-    gmds = pd.DataFrame(gmds.groupby(shotsBins).mean().to_numpy())
-    #print(gmds)
-    for group in range(tofs.index.size):
-        if not tofs.loc[group].isnull().to_numpy().any():
-            img[c] += tofs.loc[group].to_numpy()
-            gmd[c] += gmds.loc[group].to_numpy()
+    tofsEven = pd.DataFrame(chunkEven.groupby(shotsBins).mean().to_numpy())
+    tofsOdd = pd.DataFrame(chunkOdd.groupby(shotsBins).mean().to_numpy())
+    for group in range(tofsEven.index.size):
+        if not tofsEven.loc[group].isnull().to_numpy().any():
+            imgEven[c] += tofsEven.loc[group].to_numpy()
+            imgOdd[c] += tofsOdd.loc[group].to_numpy()
             binCount[c] += 1
         c += 1
 
 tofs = tr.select("shotsTof", where=["pulseId == pulsesLims[0]", "pulseId in pulses.index"]).columns
 tr.close()
 
-img /= binCount[:,None]
-gmd /= binCount
-img /= gmd[:,None]
+print("Final average and GMD normalisation for even and odd data ...")
+imgEven /= binCount[:,None] # average energy binned tof traces with number of used chunks
+imgEven /= gmdBinEven.mean()[:,None]  # normalise average tof traces on average gmd
+imgOdd /= binCount[:,None]
+imgOdd /= gmdBinOdd.mean()[:,None]
 
-bg = np.array([ j[:100].mean() for j in img])
-img -= bg[:,None]
-
+print("Prepare dataframes and calculate other stuff ...")
+# calulate kinetic energy
 evConv = mainTofEvConv(pulses.retarder.mean())
 evs = evConv(tofs.to_numpy(dtype=np.float64))
 
-# make proper pandas dataframe
-img = pd.DataFrame(data=img, index=opisBin.values, columns=evs, dtype="float64").dropna()
+# make pandas dataframe
+imgEven = pd.DataFrame(data=imgEven, index=opisBin.mean().values, columns=evs, dtype="float64").dropna()
+imgOdd = pd.DataFrame(data=imgOdd, index=opisBin.mean().values, columns=evs, dtype="float64").dropna()
 
-# save this dataframe to text file
-img.to_csv(cfg.output.data + "nexafs_{0}.csv".format(timetag), header=True, index=True , mode="w")
+# changing the offset so that data has same sign everywhere
 
-#img = pd.read_csv(cfg.output.data + "nexafs_{0}.csv".format(timetag), header=0, index_col=0)
-#img.columns = img.columns.astype('float64')
-d = np.array([i - i.max() for i in img.values])
-img = pd.DataFrame(data=d, columns=img.columns, index=img.index)
+d = np.array([i - i.max() for i in imgEven.values])
+imgEven = pd.DataFrame(data=d, columns=imgEven.columns, index=imgEven.index)
+d = np.array([i - i.max() for i in imgOdd.values])
+imgOdd = pd.DataFrame(data=d, columns=imgOdd.columns, index=imgOdd.index)
+del d
 
-# make a plot
-f2, ax = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={'width_ratios': [2, 3]})
-cm = ax[1].pcolormesh(img.columns.values, img.index.values, img.values, cmap="cividis")
-cb = plt.colorbar(cm)
-ax[1].set_xlabel("Kinetic Energy (eV)")
-cb.set_label("GMD normalised average Counts")
+# calculate average, difference and projections of ROIs
 
-# look at region of interest
+aver = pd.DataFrame((imgEven.values + imgOdd.values) / 2, index=imgOdd.index, columns=evs, dtype="float64")
+diff = pd.DataFrame(imgEven.values - imgOdd.values, index=imgOdd.index, columns=evs, dtype="float64")
 
-if cfg.ROI == "all":
-    roi = img
-    ax[0].plot(roi.T.sum()/1000, roi.index, ".")
-    ax[0].set_xlabel('Summed Counts (x1000)')
-else:
-    mask = (img == img) & (img.columns >= cfg.ROI[0]) & (img.columns <= cfg.ROI[1])
-    if cfg.PLC:
-        roi = img[mask]
-        roi_max = [ i.argmin() for i in img.values]
-        roi_pl = [ img.values[i][roi_max[i]-25:roi_max[i]+25].sum() for i in range(len(img.values))]
-        roi = roi.T.dropna().T
-        ax[0].plot(roi.T.sum()/1000, roi.index, ".", label="Raw sum")
-        ax[0].plot((roi.T.sum() - roi_pl)/1000, roi.index, ".", label="PL corrected")
-        ax[0].legend(loc=9)
+def roi_sum(dataframe, region_of_interest, plc=False):
+
+    if region_of_interest == "all":
+        df_sum = dataframe.T.sum()
     else:
-        roi = img[mask].T.dropna().T
-        ax[0].plot(roi.T.sum()/1000, roi.index, ".", label="Raw sum")
+        mask = (dataframe == dataframe) & (dataframe.columns >= region_of_interest[0]) & (dataframe.columns <= region_of_interest[1])
+        if plc:
+            print("Photoline correction not implemented yet.")
+        df_sum = dataframe[mask].T.dropna().sum()
 
-    ax[0].set_xlabel('Summed Counts over ROI {0}-{1} eV (x1000)'.format(cfg.ROI[0], cfg.ROI[1]))
+    return df_sum
 
-ax[0].set_ylabel('Photon Energy (eV)')
+iOdd_sum = roi_sum(imgOdd, cfg.ROI, cfg.PLC)
+iEven_sum = roi_sum(imgEven, cfg.ROI, cfg.PLC)
+aver_sum = roi_sum(aver, cfg.ROI, cfg.PLC)
+diff_sum = roi_sum(diff, cfg.ROI, cfg.PLC)
 
-#ax[0].set_ylim(202,246)
+# store data in new hdf file
+print("Store processed data in hdf file ...")
+hdf = h5py.File(cfg.output.data+tag+".h5", "w")
+group = hdf.create_group("processed_data")
+group.create_dataset("Ekin", data=evs, dtype=float)
+group.create_dataset("Ephot", data=imgOdd.index.values, dtype=float)
+group.create_dataset("unpumped_nexafs", data=imgOdd.values, dtype=float)
+group.create_dataset("pumped_nexafs", data=imgEven.values, dtype=float)
+group.create_dataset("averaged_nexafs", data=aver.values, dtype=float)
+group.create_dataset("difference_nexafs", data=diff.values, dtype=float)
+group.create_dataset("unpumped_roi_sum", data=iOdd_sum.values, dtype=float)
+group.create_dataset("pumped_roi_sum", data=iEven_sum.values, dtype=float)
+group.create_dataset("average_roi_sum", data=aver_sum.values, dtype=float)
+group.create_dataset("difference_roi_sum", data=diff_sum.values, dtype=float)
+group.create_dataset("Gmd_even_mean", data=gmdBinEven.mean().values, dtype=float)
+group.create_dataset("Gmd_even_std", data=gmdBinEven.std().values, dtype=float)
+group.create_dataset("Gmd_odd_mean", data=gmdBinOdd.mean().values, dtype=float)
+group.create_dataset("Gmd_odd_std", data=gmdBinOdd.std().values, dtype=float)
+group.create_dataset("UV_even_mean", data=uvBinEven.mean().values, dtype=float)
+group.create_dataset("UV_even_std", data=uvBinEven.std().values, dtype=float)
+group.create_dataset("UV_odd_mean", data=uvBinOdd.mean().values, dtype=float)
+group.create_dataset("UV_odd_std", data=uvBinOdd.std().values, dtype=float)
+hdf.close()
+
+
+# plot pumped and unpumed nexafs maps in one figure for comparison
+print("Plot stuff ...")
+f1, ax1 = plt.subplots(1, 2, sharey=True, figsize=(10,4))
+cm11 = ax1[0].pcolormesh(imgOdd.columns.values, imgOdd.index.values, imgOdd.values, cmap="cividis", vmax=0, vmin=-300)
+cm12 = ax1[1].pcolormesh(imgEven.columns.values, imgEven.index.values, imgEven.values, cmap="cividis", vmax=0, vmin=-300)
+cb1 = plt.colorbar(cm11)
+ax1[0].set_xlabel("Kinetic Energy (eV)")
+ax1[0].set_ylabel("Photon Energy (eV)")
+ax1[0].set_title("unpumped")
+ax1[1].set_xlabel("Kinetic Energy (eV)")
+ax1[1].set_title("UV pumped")
+cb1.set_label("GMD Normalised Signal)")
 plt.tight_layout()
-plt.savefig(cfg.output.img + "nexafs_{0}.png".format(timetag), dpi=300)
-#plt.show()
-plt.close("all")
+plt.savefig(cfg.output.img+tag+"_map_comp.png", dpi=150)
+plt.close(f1)
+
+# plot average nexafs map
+f2, ax2 = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={"width_ratios":[2, 3]})
+ax2[0].plot(aver_sum.values, aver.index.values, ".")
+ax2[0].set_xlabel("Summed Signal")
+ax2[0].set_ylabel("Photon Energy (eV)")
+cm2 = ax2[1].pcolormesh(aver.columns.values, aver.index.values, aver.values, cmap="cividis")
+cb2 = plt.colorbar(cm2)
+ax2[1].set_xlabel("Kinetic Energy (eV)")
+cb2.set_label("GMD Normalised Signal")
+plt.tight_layout()
+plt.savefig(cfg.output.img+tag+"_average.png", dpi=150)
+plt.close(f2)
+
+# plot difference nexafs_map
+f3, ax3 = plt.subplots(1, 2, sharey=True, figsize=(10,4), gridspec_kw={"width_ratios":[2, 3]})
+ax3[0].plot(diff_sum.values, diff.index.values, ".")
+ax3[0].set_xlabel("Summed Signal")
+ax3[0].set_ylabel("Photon Energy (eV)")
+cm3 = ax3[1].pcolormesh(diff.columns.values, diff.index.values, diff.values, cmap="bwr", vmin=-diff.values.max(), vmax=diff.values.max())
+cb3 = plt.colorbar(cm3)
+ax3[1].set_xlabel("Kinetic Energy (eV)")
+cb3.set_label("GMD Normalised Signal")
+plt.tight_layout()
+plt.savefig(cfg.output.img+tag+"_diff.png", dpi=150)
+plt.close(f3)
+
+# plot roi sums of unpumped and pumped
+f4 = plt.figure()
+plt.plot(iOdd_sum.index.values, iOdd_sum.values, ".", label="unpumped")
+plt.plot(iEven_sum.index.values, iEven_sum.values, ".", label="pumped")
+plt.xlabel("Photon Energy (eV)")
+plt.ylabel("Summed Signal (ROI)")
+plt.legend()
+plt.tight_layout()
+plt.savefig(cfg.output.img+tag+"_roi_comp.png", dpi=150)
+plt.close(f4)
+print("Done :-)")
+
