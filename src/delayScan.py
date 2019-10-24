@@ -9,27 +9,26 @@ import utils
 
 import pickle
 
-cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
+cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'first_block.h5'
+                          'trace'    : 'fisrt_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,25,20,16,0).timestamp(),
-                         'stop'  : datetime(2019,3,25,20,30,0).timestamp(),
-           #'time'     : { 'start' : datetime(2019,3,26,16,25,0).timestamp(),
-           #               'stop'  : datetime(2019,3,26,20,40,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,16,30,0).timestamp(),
+                         'stop'  : datetime(2019,3,27,7,7,0).timestamp(),
                         },
-           'filters'  : { 'undulatorEV' : (260,284),
-                          'retarder'    : (-270,270),
-                          'waveplate'   : (0,50)
+           'filters'  : { 'opisEV' : (270,275),
+                          'retarder'    : (-81,-79),
+                          'delay'       : (1175, 1179.5),
+                          'waveplate'   : (10.0,10.5)
                         },
 
-           #'delayBinStep': 0.05,
-           'delayBinNum' : 100,
-           'ioChunkSize' : 200000,
-           'gmdNormalize': False,
+           'delayBinStep': 0.05,
+           #'delayBinNum' : 100,
+           'ioChunkSize' : 50000,
+           'gmdNormalize': True,
            'useBAM'      : True,
 
-           'outFname'    : '2019_3_29_22_51-59_bam=False'
+           'outFname'    : 'nonres_auger_wp-10.2_del-0.050ps_GMD_BAM'
       }
 
 
@@ -56,6 +55,14 @@ pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 #Plot relevant parameters
 utils.plotParams(shotsData)
 
+uvEven = shotsData.query("shotNum % 2 == 0").uvPow.mean()
+uvOdd = shotsData.query("shotNum % 2 == 1").uvPow.mean()
+
+if uvEven > uvOdd:
+    print("Even shots are UV pumped.")
+else:
+    print("Odd shots are UV pumped.")
+
 if cfg.gmdNormalize:
     gmdData = shotsData.GMD
 else:
@@ -66,13 +73,23 @@ shotsNum = len(shotsData.index.levels[1]) // 2
 shotsData = shotsData.query('shotNum % 2 == 0')
 
 if cfg.useBAM:
+    shotsData.BAM = shotsData.BAM.fillna(0)
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 else:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
 
 binStart, binEnd = utils.getROI(shotsData)
 
-print(f"Loading {shotsData.shape[0]} shots")
+# correcting for direction preference
+# if you proceed with end < start, binning fails
+if binStart > binEnd:
+    b = binStart
+    binStart = binEnd
+    binEnd = b
+    del b
+
+
+print(f"Loading {shotsData.shape[0]*2} shots")
 print(f"Binning interval {binStart} : {binEnd}")
 
 #Bin data on delay
@@ -88,7 +105,7 @@ shotsTof  = tr.select('shotsTof',  where=['pulseId >= pulsesLims[0] and pulseId 
                                    iterator=True, chunksize=cfg.ioChunkSize)
 
 #Create empty ouptut image image
-img = np.zeros( ( len(bins), 3000 ))
+img = np.zeros( ( len(bins), 3009 ))
 binCount = np.zeros( len(bins) )
 #Iterate over data chunks and accumulate them in img
 for counter, chunk in enumerate(shotsTof):
@@ -96,7 +113,7 @@ for counter, chunk in enumerate(shotsTof):
     shotsDiff = utils.getDiff(chunk, gmdData)
     for binId, bin in enumerate(bins):
         name, group = bin
-        group = group.query("GMD > 2.")
+        group = group.query("GMD > .5 & BAM != 0")
         binTrace = shotsDiff.reindex(group.index).mean()
         if not binTrace.isnull().to_numpy().any():
             img[binId] += binTrace
@@ -106,6 +123,7 @@ idx.close()
 tr.close()
 
 img /= binCount[:,None]
+if uvEven > uvOdd: img *= -1
 
 #plt.plot(binCount)
 #plt.show()
@@ -122,13 +140,21 @@ delays = np.array( [name.mid for name, _ in bins] )
 evConv = utils.mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
+img = pd.DataFrame(data = img, columns=evs, index=delays).fillna(0)
+img.to_csv("./data/" + cfg.outFname + ".csv")
 
 #plot resulting image
 plt.figure()
-cmax = np.abs(img[np.logical_not(np.isnan(img))]).max()*0.1
-plt.pcolor(evs, delays ,img, cmap='bwr', vmax=cmax, vmin=-cmax)
-plt.savefig(cfg.outFname)
+cmax = np.max(np.abs(img.values))*0.1 #np.abs(img.values[np.logical_not(np.isnan(img))]).max()*0.1
+plt.pcolormesh(evs, delays ,img.values, cmap='bwr', vmax=cmax, vmin=-cmax)
+plt.xlabel("Kinetic energy (eV)")
+plt.ylabel("Averaged Signal (counts)")
+plt.tight_layout()
+#plt.savefig(cfg.outFname)
 #plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
+plt.show()
+
+'''
 #plot liner graph of integral over photoline
 plt.figure()
 #photoline = slice(820,877)
@@ -138,7 +164,7 @@ valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin() )
 plt.plot(delays, img.T[valence].sum(axis=0))
 plt.show()
 
-'''
+
 results = np.full((img.shape[0]+1,img.shape[1]+1), np.nan)
 results[1:,1:] = img
 results[1:,0] = delays
