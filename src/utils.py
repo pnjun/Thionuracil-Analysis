@@ -28,7 +28,7 @@ def shotsDelay(delaysData, bamData=None, shotsNum = None):
     #Define CUDA kernels for delay adjustment
     @cuda.jit
     def shiftBAM(bam, delay):
-        bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] += delay[cuda.blockIdx.x] #With BAM
+        bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] = delay[cuda.blockIdx.x] - bam[cuda.blockIdx.x*cuda.blockDim.x + cuda.threadIdx.x ] #With BAM
 
     @cuda.jit
     def propagateDelay(bam, delay):

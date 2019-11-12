@@ -16,8 +16,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'output'   : { 'path'     : './data/',
                           'fname'    : 'testBAM+'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,21,55,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,22,1,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,20,45,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,20,59,0).timestamp(),
                         },
            'filters'  : { 'opisEV'      : (270,275),
                           'retarder'    : (-81,-79),
@@ -25,8 +25,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'waveplate'   : (39,41)
                         },
            'delayBins'   : False, # if you want to set costumized (non equidistant) binning intervals set to True
-           #'delayBinStep': 0.05, # relevant if delayBins is False, choose between Step or Num
-           'delayBinNum' : 100,
+           #'delayBinStep': 0.02, # relevant if delayBins is False, choose between Step or Num
+           'delayBinNum' : 60,
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
@@ -175,6 +175,7 @@ plt.ylabel("Averaged Signal (counts)")
 plt.tight_layout()
 #plt.savefig(cfg.output.path + cfg.output.fname)
 #plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
+print("\nDone")
 plt.show()
 
 '''
