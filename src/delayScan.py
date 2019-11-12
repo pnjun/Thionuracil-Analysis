@@ -13,6 +13,9 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'fisrt_block.h5'
                         },
+           'output'   : { 'path'     : './data/',
+                          'fname'    : 'testBAM+'
+                        },
            'time'     : { 'start' : datetime(2019,3,26,21,55,0).timestamp(),
                           'stop'  : datetime(2019,3,26,22,1,0).timestamp(),
                         },
@@ -27,7 +30,6 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
-           'outFname'    : 'testBAM+'
       }
 
 
@@ -108,7 +110,7 @@ if cfg.delayBins: # insert your binning intervals here
     print(f"Loading {shotsData.shape[0]*2} shots")
 else:
     binStart, binEnd = utils.getROI(shotsData)
-    
+
     print(f"Loading {shotsData.shape[0]*2} shots")
     print(f"Binning interval {binStart} : {binEnd}")
 
@@ -162,7 +164,7 @@ evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
 img = pd.DataFrame(data = img, columns=evs, index=delays).fillna(0)
 #img.to_csv("./data/" + cfg.outFname + ".csv")
-img.to_hdf("./data/" + cfg.outFname + ".csv", "data",mode="w", format="table")
+img.to_hdf(cfg.output.path + cfg.output.fname + ".csv", "data",mode="w", format="table")
 
 #plot resulting image
 plt.figure()
@@ -171,7 +173,7 @@ plt.pcolormesh(evs, delays ,img.values, cmap='bwr', vmax=cmax, vmin=-cmax)
 plt.xlabel("Kinetic energy (eV)")
 plt.ylabel("Averaged Signal (counts)")
 plt.tight_layout()
-#plt.savefig(cfg.outFname)
+#plt.savefig(cfg.output.path + cfg.output.fname)
 #plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
 plt.show()
 
