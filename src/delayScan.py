@@ -13,21 +13,21 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'fisrt_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,16,30,0).timestamp(),
-                         'stop'  : datetime(2019,3,27,7,7,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,21,55,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,22,1,0).timestamp(),
                         },
-           'filters'  : { 'opisEV' : (270,275),
+           'filters'  : { 'opisEV'      : (270,275),
                           'retarder'    : (-81,-79),
                           'delay'       : (1175, 1180.0),
-                          'waveplate'   : (10.0,10.5)
+                          'waveplate'   : (39,41)
                         },
-           'delayBins'   : True, # if you want to set costumized (non equidistant) binning intervals set to True
-           'delayBinStep': 0.05, # relevant if delayBins is False, choose between Step or Num
-           #'delayBinNum' : 100,
+           'delayBins'   : False, # if you want to set costumized (non equidistant) binning intervals set to True
+           #'delayBinStep': 0.05, # relevant if delayBins is False, choose between Step or Num
+           'delayBinNum' : 100,
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
-           'useBAM'      : False,
-           'outFname'    : 'nonres_auger_wp-10.2_neb_GMD'
+           'useBAM'      : True,
+           'outFname'    : 'testBAM+'
       }
 
 
@@ -108,15 +108,7 @@ if cfg.delayBins: # insert your binning intervals here
     print(f"Loading {shotsData.shape[0]*2} shots")
 else:
     binStart, binEnd = utils.getROI(shotsData)
-    # correcting for direction preference
-    # if you proceed with end < start, binning fails
-    if binStart > binEnd:
-        b = binStart
-        binStart = binEnd
-        binEnd = b
-        del b
-
-
+    
     print(f"Loading {shotsData.shape[0]*2} shots")
     print(f"Binning interval {binStart} : {binEnd}")
 

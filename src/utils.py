@@ -82,9 +82,9 @@ def getDiff(tofTrace, gmd = None, integSlice = None):
     if gmd is not None:
         #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
         cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
-        tofDiffGMD[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof, cuGmd)
+        tofDiffGMD[ (tof.shape[0] // 2 , tof.shape[1] // 64) , 64 ](tof, cuGmd)
     else:
-        tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 250) , 250 ](tof)
+        tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 64) , 64 ](tof)
 
     if integSlice is not None:
         return pd.DataFrame( tof[::2, integSlice].sum(axis=1).get(),
@@ -109,7 +109,11 @@ def getROI(shotsData):
     plt.gcf().canvas.mpl_connect('button_press_event', getBinStart)
     plt.gcf().canvas.mpl_connect('button_release_event', getBinEnd)
     plt.show()
-    return (binStart, binEnd)
+
+    if binStart < binEnd:
+        return (binStart, binEnd)
+    else:
+        return (binEnd, binStart)
 
 def plotParams(shotsData):
     ''' Shows histograms of GMD and uvPower as a sanity check to the user.
