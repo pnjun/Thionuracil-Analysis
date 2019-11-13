@@ -84,37 +84,17 @@ if cfg.useBAM:
 else:
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
     averageBamShift = np.float32(0.)
+print(f"Loading {shotsData.shape[0]*2} shots")
 
 
 if cfg.delayBins: # insert your binning intervals here
     print(f"Setting up customized bins")
-    bin_right = [1180,1179.8,1179.6,1179.4,1179.2,1179,1178.975,1178.95,1178.925,1178.9,
-                 1178.875,1178.85,1178.825,1178.8,1178.775,1178.75,1178.725,1178.7,1178.675,1178.65,
-                 1178.625,1178.6,1178.575,1178.55,1178.525,1178.5,1178.475,1178.45,1178.425,1178.4,
-                 1178.375,1178.35,1178.325,1178.3,1178.275,1178.25,1178.225,1178.2,1178.175,1178.15,
-                 1178.125,1178.1,1178.075,1178.05,1178.025,1178,1177.975,1177.95,1177.925,1177.9,
-                 1177.65,1177.4,1177.15,1176.9,1176.65,1176.4,1176.15,1175.9,1175.65,1175.4,
-                 1175.15,1174.9,1173.9,1172.9,1171.9,1170.9,1169.9,1168.9,1160,1130,1080
-                ] # right bounds
-    bin_left = [1179.8,1179.6,1179.4,1179.2,1179,1178.975,1178.95,1178.925,1178.9,1178.875,
-                1178.85,1178.825,1178.8,1178.775,1178.75,1178.725,1178.7,1178.675,1178.65,1178.625,
-                1178.6,1178.575,1178.55,1178.525,1178.5,1178.475,1178.45,1178.425,1178.4,1178.375,
-                1178.35,1178.325,1178.3,1178.275,1178.25,1178.225,1178.2,1178.175,1178.15,1178.125,
-                1178.1,1178.075,1178.05,1178.025,1178,1177.975,1177.95,1177.925,1177.9,1177.65,
-                1177.4,1177.15,1176.9,1176.65,1176.4,1176.15,1175.9,1175.65,1175.4,1175.15,1174.9,
-                1173.9,1172.9,1171.9,1170.9,1169.9,1168.9,1167.9,1155,1125,1075
-               ] # left bounds
-    bin_left -= averageBamShift
-    bin_right -= averageBamShift
-    interval = pd.IntervalIndex.from_arrays(bin_left, bin_right)
-#    for i in interval:
-#        print(i)
+    interval = pd.IntervalIndex.from_arrays(utils.CUSTOM_BINS_LEFT + averageBamShift,
+                                            utils.CUSTOM_BINS_RIGHT + averageBamShift)
     bins = shotsData.groupby( pd.cut(shotsData.delay, interval) )
-    print(f"Loading {shotsData.shape[0]*2} shots")
+
 else:
     binStart, binEnd = utils.getROI(shotsData)
-
-    print(f"Loading {shotsData.shape[0]*2} shots")
     print(f"Binning interval {binStart} : {binEnd}")
 
     #Bin data on delay
