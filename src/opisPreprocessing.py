@@ -1,4 +1,4 @@
-#!/bin/python3.4
+#!/usr/bin/python3
 '''
 Simlar to dataPreprocessing but for OPIS data. Slices OPIS data.
 
@@ -18,17 +18,16 @@ import numpy as np
 import os, glob
 import uuid
 from attrdict import AttrDict
-
 from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files'    : 'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
+                          'files'    : ['FLASH2_USER1-2019-03-31T0500.h5']  #'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #['FLASH2_USER1-2019-04-01T0238.h5'] ,   # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : {
-                          'folder' : '/media/Fast2/ThioUr/processed/',
+                          'folder' : '/media/Fast1/ThioUr/processed/',
                           # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.
-                          'fname'  :  'second_block_opis.h5',
+                          'fname'  :  'opistest2.h5' #second_block_opis.h5',
                         },
            'hdf'      : { 'opisTr0'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
                           'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
@@ -38,6 +37,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                           'ret1'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF2 voltages/Ret nominal set',
                           'ret2'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF3 voltages/Ret nominal set',
                           'ret3'       : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/eTOF4 voltages/Ret nominal set',
+                          'gasID'      : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Expert stuff/XGM.GAS_SUPPLY/FL2.TUNNEL.OPIS/GAS.TYPE.ID',
                           'times'      : '/Timing/time stamp/fl2user1',
                         },
            'slicing0' : { 'offset'   : 263,   #Offset of first slice in samples (time zero)
@@ -77,7 +77,7 @@ cfg = AttrDict(cfg)
 def main():
     outfname = uuid.uuid4().hex + '.temp' if cfg.output.fname == 'AUTO' else cfg.output.fname
 
-    fout = pd.HDFStore(cfg.output.folder + outfname, complib = 'zlib', complevel = 9)
+    fout = pd.HDFStore(cfg.output.folder + outfname, complib = 'zlib', complevel = 1)
 
     flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
     flist = sorted(flist)
@@ -87,12 +87,13 @@ def main():
         with h5py.File( fname ) as dataf:
             #Dataframe for macrobunch info
             pulses = pd.DataFrame( { 'pulseId'     : dataf[cfg.hdf.times][:, 2].astype('int64'),
-                                     'time'        : dataf[cfg.hdf.times][:, 0],
+                                     'time'      : dataf[cfg.hdf.times][:, 0],
+                                     'gasID'     : dataf[cfg.hdf.gasID][:, 0],
                                      'ret0'      : dataf[cfg.hdf.ret0][:, 0],
                                      'ret1'      : dataf[cfg.hdf.ret1][:, 0],
                                      'ret2'      : dataf[cfg.hdf.ret2][:, 0],
                                      'ret3'      : dataf[cfg.hdf.ret3][:, 0],
-                                   } , columns = [ 'pulseId', 'time', 'ret0', 'ret1', 'ret2', 'ret3' ])
+                                   } , columns = [ 'pulseId', 'time', 'gasID', 'ret0', 'ret1', 'ret2', 'ret3' ])
             pulses = pulses.set_index('pulseId')
 
             #Check if OPIS raw data is present in file:

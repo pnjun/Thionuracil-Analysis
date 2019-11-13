@@ -13,10 +13,13 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'fisrt_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,16,30,0).timestamp(),
-                         'stop'  : datetime(2019,3,27,7,7,0).timestamp(),
+           'output'   : { 'path'     : './data/',
+                          'fname'    : 'testBAM+'
                         },
-           'filters'  : { 'opisEV' : (270,275),
+           'time'     : { 'start' : datetime(2019,3,26,20,45,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,20,59,0).timestamp(),
+                        },
+           'filters'  : { 'opisEV'      : (270,275),
                           'retarder'    : (-81,-79),
 #                          'delay'       : (1170, 1180.0),
                           'waveplate'   : (9.,11.)
@@ -27,7 +30,6 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
-           'outFname'    : 'nonres_auger_wp-10.2_neb_GMD_BAM'
       }
 
 
@@ -111,14 +113,6 @@ if cfg.delayBins: # insert your binning intervals here
     print(f"Loading {shotsData.shape[0]*2} shots")
 else:
     binStart, binEnd = utils.getROI(shotsData)
-    # correcting for direction preference
-    # if you proceed with end < start, binning fails
-    if binStart > binEnd:
-        b = binStart
-        binStart = binEnd
-        binEnd = b
-        del b
-
 
     print(f"Loading {shotsData.shape[0]*2} shots")
     print(f"Binning interval {binStart} : {binEnd}")
@@ -172,8 +166,8 @@ evConv = utils.mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
 img = pd.DataFrame(data = img, columns=evs, index=delays).fillna(0)
-#img.to_csv("./data/" + cfg.outFname + ".csv")
-img.to_hdf("./data/" + cfg.outFname + ".h5", "data",mode="w", format="table")
+img.to_hdf(cfg.output.path + cfg.output.fname + ".csv", "data",mode="w", format="table")
+
 
 #plot resulting image
 plt.figure()
@@ -182,8 +176,9 @@ plt.pcolormesh(evs, delays ,img.values, cmap='bwr', vmax=cmax, vmin=-cmax)
 plt.xlabel("Kinetic energy (eV)")
 plt.ylabel("Averaged Signal (counts)")
 plt.tight_layout()
-#plt.savefig(cfg.outFname)
+#plt.savefig(cfg.output.path + cfg.output.fname)
 #plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
+print("\nDone")
 plt.show()
 
 '''
