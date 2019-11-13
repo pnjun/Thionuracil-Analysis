@@ -6,10 +6,10 @@ Parameters plotted:
 - OPIS vs undulator
 - waveplate
 - retarder
-- UV power even vs odd shots
+- UV power for pumped shots
 - GMD
 - BAM and corrected delays
-- binning of GMD and UV data by (BAM corrected) delays
+- binning of GMD and UV data of pumped shots by (BAM corrected) delays
 
 """
 import pandas as pd
@@ -28,20 +28,21 @@ cfg = {    'data'        : { 'path'     : '/media/Fast2/ThioUr/processed/',
                              'trace'    : 'fisrt_block.h5'
                            },
            'time'        : { 'start'  : datetime(2019,3,26,16,25,0).timestamp(),
-                             'stop'   : datetime(2019,3,26,19,0,0).timestamp()
+                             'stop'   : datetime(2019,3,27,7,8,0).timestamp()
                           },
-           'filters'     : { 'opisEV' : (271,274),
-                             'waveplate'   : (9.0, 11.0),
-                             'retarder'    : (-81,-79)
+           'filters'     : { 'opisEV'    : (271,274),
+                             'waveplate' : (9.0, 11.0),
+                             'retarder'  : (-81,-79),
+                             'delay'     : (1170, 1180)
                            },
            'plots'       : { 'retarder' : False,  # check retarder values
                              'opis'     : False,  # check opis & undulator values
                              'uv'       : False,  # check uv values
                              'gmd'      : False,  # check gmd values
-                             'bam'      : False,  # check bam values
+                             'bam'      : True,  # check bam values
                              'delayBin' : True  # bin gmd and uv data by delay; if bam is True, the delays will be corrected by bam values
                            },
-           't0'          : 1178.45,  # time zero, relevant if delayBin is True
+           't0'          : 1177.0,  # time zero, relevant if delayBin is True
       }
 
 cfg = AttrDict(cfg)
@@ -107,19 +108,27 @@ if cfg.plots.bam:
     print("Plot BAM data ...", end="\r")
     f3, ax3 = plt.subplots(2, 2, figsize=(9,6))
     bam = shotsData.pivot_table(index="pulseId", columns="shotNum", values="BAM")
-    ax3[0, 0].plot(bam.mean(axis=1).values)
-    ax3[0, 1].plot(bam.mean(axis=0).values)
+
+    ax3[0, 0].plot(bam.mean(axis=1), label="MB mean")
+    ax3[0, 0].plot(bam.mean(axis=1).rolling(window=100).mean(), label="100 MB mean")
     ax3[0, 0].set_xlabel("Macrobunch")
     ax3[0, 0].set_ylabel("Average BAM value (ps)")
+    ax3[0, 0].legend()
+
+    ax3[0, 1].errorbar(bam.columns.values, bam.mean(axis=0).values, fmt=".", yerr=bam.std(axis=0).values)
     ax3[0, 1].set_xlabel("Pulse number")
     ax3[0, 1].set_ylabel("Average BAM value (ps)")
+
     shotsData.hist("BAM", ax=ax3[1, 0], bins=200)
     ax3[1, 0].set_xlabel("BAM data (ps)")
     ax3[1, 0].set_ylabel("Counts")
     ax3[1, 0].set_title("")
-    shotsData.hist("delay", ax=ax3[1, 1], bins=200 )
+
+    shotsData.delay = (shotsData.delay - cfg.t0)*-1
+    shotsData.hist("delay", ax=ax3[1, 1], bins=1000 )
     ax3[1, 1].set_xlabel("Corrected Delays (ps)")
     ax3[1, 1].set_title("")
+
     plt.tight_layout()
 
 else:
@@ -143,15 +152,28 @@ if cfg.plots.uv:
 
     print("Plot UV data ...", end="\r")
     f4, ax4 = plt.subplots(1, 2, figsize=(9,4))
-    uvEven.hist(ax=ax4[0], bins=1000)
-    uvOdd.hist(ax=ax4[1], bins=1000)
+
+
+
+    if uvEven.mean() > uvOdd.mean():
+        uvEven.hist(ax=ax4[0], bins=1000)
+        f4.suptitle("Even shots")
+        uvEven = sdEven.pivot_table(index="pulseId", columns="shotNum", values="uvPow")
+        ax4[1].errorbar(uvEven.columns.values, uvEven.mean().values, fmt=".", yerr=uvEven.std().values)
+        ax4[1].plot(uvEven.columns.values, uvEven.median().values, ".")
+    else:
+        uvOdd.hist(ax=ax4[0], bins=1000)
+        f4.suptitle("Odd shots")
+        uvOdd = sdOdd.pivot_table(index="pulseId", columns="shotNum", values="uvPow")
+        ax4[1].errorbar(uvOdd.columns.values, uvOdd.mean().values, fmt=".", yerr=uvOdd.std().values)
+        ax4[1].plot(uvOdd.columns.values, uvOdd.median().values, ".")
+
     ax4[0].set_xlabel("uv power")
-    ax4[1].set_xlabel("uv power")
     ax4[0].set_ylabel("counts")
-    ax4[1].set_ylabel("counts")
-    ax4[0].set_title("Even shots")
-    ax4[1].set_title("Odd shots")
-    plt.tight_layout()
+    ax4[1].set_xlabel("pulse number")
+    ax4[1].set_ylabel("uv power")
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
 if cfg.plots.gmd:
 
@@ -194,6 +216,7 @@ if cfg.plots.delayBin:
   
     print("Set up delay bins ...", end="\r")
 
+    """
     bin_right = [1180,1179.8,1179.6,1179.4,1179.2,1179,1178.975,1178.95,1178.925,1178.9,
                  1178.875,1178.85,1178.825,1178.8,1178.775,1178.75,1178.725,1178.7,1178.675,1178.65,
                  1178.625,1178.6,1178.575,1178.55,1178.525,1178.5,1178.475,1178.45,1178.425,1178.4,
@@ -214,7 +237,9 @@ if cfg.plots.delayBin:
     bin_right += averageBamShift
 
     interval = pd.IntervalIndex.from_arrays(bin_left, bin_right)
-    delays = (np.array([i.mid for i in interval]) - cfg.t0) * -1
+    """
+    interval = pd.interval_range(start=-2, end=9, freq=0.01)
+    delays = np.array([i.mid for i in interval])#(np.array([i.mid for i in interval]) - cfg.t0) * -1
 
     try:
         sdEven
@@ -235,29 +260,29 @@ if cfg.plots.delayBin:
         print("Something's wrong with binning since gmd and uv counts are not the same. Exiting.")
         exit()
 
-    f6, ax6 = plt.subplots(3, 2, figsize=(9, 9), sharex="col")
+    f6, ax6 = plt.subplots(1, 3, figsize=(10, 4))
 
-    ax6[0, 0].plot(delays, gmdStatsEven["counts"].values, ".")
-    ax6[0, 1].plot(delays, gmdStatsOdd["counts"].values, ".")
-    ax6[0, 0].set_ylabel("Shots per bin")
-    ax6[0, 0].set_title("Even shots")
-    ax6[0, 1].set_title("Odd shots")
+    if uvStatsEven["mean"].mean() > uvStatsOdd["mean"].mean():
 
-    ax6[1, 0].plot(delays, gmdStatsEven["mean"].values, ".")
-    ax6[1, 0].set_ylabel("GMD value")
+        f6.suptitle("Even shots")
+        ax6[0].bar(delays, gmdStatsEven["counts"].values, width=0.01)
+        ax6[1].plot(delays, gmdStatsEven["mean"].values, ".")
+        ax6[2].plot(delays, uvStatsEven["mean"].values, ".")
 
-    ax6[1, 1].plot(delays, gmdStatsOdd["mean"].values, ".")
+    else:
 
-    ax6[2, 0].plot(delays, uvStatsEven["mean"].values, ".")
-    ax6[2, 0].set_ylabel("UV value")
+        f6.suptitle("Odd shots")
+        ax6[0].bar(delays, gmdStatsOdd["counts"].values, width=0.01)
+        ax6[1].plot(delays, gmdStatsOdd["mean"].values, ".")
+        ax6[2].plot(delays, uvStatsOdd["mean"].values, ".")
 
-    ax6[2, 1].plot(delays, uvStatsOdd["mean"].values, ".")
-
-    ax6[2, 0].set_xlabel("Delay (ps)")
-    ax6[2, 0].set_xlim(-1, 3)
-    ax6[2, 1].set_xlabel("Delay (ps)")
-    ax6[2, 1].set_xlim(-1, 3)
-    plt.tight_layout()
+    ax6[0].set_ylabel("Shots per bin")
+    ax6[1].set_ylabel("Average GMD value")
+    ax6[2].set_ylabel("Average UV power value")
+    ax6[0].set_xlabel("Delay (ps)")
+    ax6[1].set_xlabel("Delay (ps)")
+    ax6[2].set_xlabel("Delay (ps)")
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
 
 plt.show()

@@ -18,16 +18,16 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                         },
            'filters'  : { 'opisEV' : (270,275),
                           'retarder'    : (-81,-79),
-                          'delay'       : (1175, 1180.0),
-                          'waveplate'   : (10.0,10.5)
+#                          'delay'       : (1170, 1180.0),
+                          'waveplate'   : (9.,11.)
                         },
            'delayBins'   : True, # if you want to set costumized (non equidistant) binning intervals set to True
-           'delayBinStep': 0.05, # relevant if delayBins is False, choose between Step or Num
+           'delayBinStep': 0.01, # relevant if delayBins is False, choose between Step or Num
            #'delayBinNum' : 100,
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
-           'useBAM'      : False,
-           'outFname'    : 'nonres_auger_wp-10.2_neb_GMD'
+           'useBAM'      : True,
+           'outFname'    : 'nonres_auger_wp-10.2_neb_GMD_BAM'
       }
 
 
@@ -69,7 +69,10 @@ else:
 
 #Add Bam info
 shotsNum = len(shotsData.index.levels[1]) // 2
-shotsData = shotsData.query('shotNum % 2 == 0')
+if uvEven > uvOdd:
+    shotsData = shotsData.query('shotNum % 2 == 0')
+else:
+    shotsData = shotsData.query('shotNum % 2 == 1')
 
 if cfg.useBAM:
     shotsData.BAM = shotsData.BAM.fillna(0)
@@ -99,8 +102,8 @@ if cfg.delayBins: # insert your binning intervals here
                 1177.4,1177.15,1176.9,1176.65,1176.4,1176.15,1175.9,1175.65,1175.4,1175.15,1174.9,
                 1173.9,1172.9,1171.9,1170.9,1169.9,1168.9,1167.9,1155,1125,1075
                ] # left bounds
-    bin_left += averageBamShift
-    bin_right += averageBamShift
+    bin_left -= averageBamShift
+    bin_right -= averageBamShift
     interval = pd.IntervalIndex.from_arrays(bin_left, bin_right)
 #    for i in interval:
 #        print(i)
@@ -141,7 +144,7 @@ for counter, chunk in enumerate(shotsTof):
     shotsDiff = utils.getDiff(chunk, gmdData)
     for binId, bin in enumerate(bins):
         name, group = bin
-        group = group.query("GMD > .5 & BAM != 0")
+        group = group.query("GMD > 0.5 & BAM != 0") # GMD < 4.5 & uvPow > 320 & uvPow < 380 &
         binTrace = shotsDiff.reindex(group.index).mean()
         if not binTrace.isnull().to_numpy().any():
             img[binId] += binTrace
@@ -170,7 +173,7 @@ evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
 img = pd.DataFrame(data = img, columns=evs, index=delays).fillna(0)
 #img.to_csv("./data/" + cfg.outFname + ".csv")
-img.to_hdf("./data/" + cfg.outFname + ".csv", "data",mode="w", format="table")
+img.to_hdf("./data/" + cfg.outFname + ".h5", "data",mode="w", format="table")
 
 #plot resulting image
 plt.figure()

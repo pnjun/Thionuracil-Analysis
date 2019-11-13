@@ -18,14 +18,14 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'second_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,1,4,40,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,7,3,0).timestamp()
+           'time'     : { 'start' : datetime(2019,3,3,20,16,0).timestamp(),
+                          'stop'  : datetime(2019,3,31,1,4,0).timestamp()
                         },
-           'filters'  : { 'opisEV' : (211,223), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
-                          'waveplate'   : (13.0, 13.5),
-                          'retarder'    : (-6,4)
+           'filters'  : { 'opisEV' : (200,250), # replace with opisEV if opis column contains reasonable values, else use undulatorEV
+                          #'waveplate'   : (13.0, 13.5),
+                          'retarder'    : (-1,1)
                         },
-           'delay'     : (1256.15,1256.67), # comment out if there is only non-UV data in the block
+           #'delay'     : (1256.15,1256.33), # comment out if there is only non-UV data in the block
            'output'   : { 'img'  : './Plots/',  # where output images should be stored
                           'data' : './data/'    # where processed data should be stored
                         },
@@ -38,7 +38,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
 cfg = AttrDict(cfg)
 
 # change tag if you change parameters above!!!!
-tag = "S2s_01_+050-500fs"
+tag = "S2s_sxr_only"
 
 idx = pd.HDFStore(cfg.data.path + cfg.data.index, 'r')
 tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
@@ -80,9 +80,6 @@ print("Separate even and odd shots ...")
 sdEven = shotsData.query("shotNum % 2 == 0")
 sdOdd = shotsData.query("shotNum % 2 == 1")
 
-#print(sdEven.index.levels[0].size, sdOdd.index.levels[0].size)
-
-# plot histograms
 print("Plot histograms for GMD and uvPow ...")
 fig1, ax1 = plt.subplots(1, 2, figsize=(9,4))
 sdEven["GMD"].hist(ax=ax1[0], bins=100)
@@ -116,9 +113,6 @@ gmdOdd = sdOdd.pivot_table(index="pulseId", columns="shotNum", values="GMD")
 uvEven = sdEven.pivot_table(index="pulseId", columns="shotNum", values="uvPow")
 uvOdd = sdOdd.pivot_table(index="pulseId", columns="shotNum", values="uvPow")
 
-#print(gmdEven.index.size, gmdOdd.index.size)
-#print(uvEven.index.size, uvOdd.index.size)
-
 print("Check and correct dataframe sizes ...")
 if gmdEven.index.size > gmdOdd.index.size:
     gmdEven = gmdEven.drop(gmdEven.index.difference(gmdOdd.index))
@@ -134,23 +128,21 @@ elif uvEven.index.size < uvOdd.index.size:
     uvEven = uvEven.drop(uvEven.index.difference(uvOdd.index))
     uvOdd = uvOdd.drop(uvOdd.index.difference(uvEven.index))
 
-#print(gmdEven.index.size, gmdOdd.index.size)
-#print(uvEven.index.size, uvOdd.index.size)
-
 # Remove pulses with no corresponing shots
 pulses = pulses.drop( pulses.index.difference(gmdEven.index) )
 pulsesLims = (pulses.index[0], pulses.index[-1])
 
-# check whether OPIS or Undulator values are used
 print("Check if OPIS or Undulator values are used ...")
 evLim = None
 photEn = None
 try:
     evLim = cfg.filters.opisEV
     photEn = pulses.opisEV
+    print("OPIS is used!")
 except AttributeError:
     evLim = cfg.filters.undulatorEV
     photEn = pulses.undulatorEV
+    print("Undulator is used! Please remember a possible offset in photon energy!")
 
 # bin pulse energies to photon energy
 print("Bin stuff ...")
