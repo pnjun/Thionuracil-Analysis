@@ -24,9 +24,9 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
 #                          'delay'       : (1170, 1180.0),
                           'waveplate'   : (9.,11.)
                         },
-           'delayBins'   : True, # if you want to set costumized (non equidistant) binning intervals set to True
-           'delayBinStep': 0.01, # relevant if delayBins is False, choose between Step or Num
-           #'delayBinNum' : 100,
+           'delayBin_mode'  : 'CUSTOM', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
+           'delayBinStep'   : 0.01,     # Size of bins, only relevant when delayBin_mode is CONSTANT
+           'delayBinNum'    : 60,       # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
@@ -45,9 +45,9 @@ pulsesLims = (pulses.index[0], pulses.index[-1])
 pulses = utils.filterPulses(pulses, cfg.filters)
 
 #Get corresponing shots
-if(len(pulses) == 0):
-    print("No pulses satisfy filter condition. Exiting\n")
-    exit()
+if(not len(pulses)):
+    raise Exception("No pulses satisfy filter condition")
+
 shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
                                           'pulseId in pulses.index'] )
 #Remove pulses with no corresponing shots
@@ -87,7 +87,7 @@ else:
 print(f"Loading {shotsData.shape[0]*2} shots")
 
 
-if cfg.delayBins: # insert your binning intervals here
+if cfg.delayBin_mode == 'CUSTOM': # insert your binning intervals here
     print(f"Setting up customized bins")
     interval = pd.IntervalIndex.from_arrays(utils.CUSTOM_BINS_LEFT + averageBamShift,
                                             utils.CUSTOM_BINS_RIGHT + averageBamShift)
@@ -98,11 +98,13 @@ else:
     print(f"Binning interval {binStart} : {binEnd}")
 
     #Bin data on delay
-    if 'delayBinStep' in cfg.keys():
+    if cfg.delayBin_mode == 'CONSTANT':
         bins = shotsData.groupby( pd.cut( shotsData.delay,
                                           np.arange(binStart, binEnd, cfg.delayBinStep) ) )
-    else:
+    elif cfg.delayBin_mode == 'QUANTILE':
         bins = shotsData.groupby( pd.qcut( shotsData.delay, cfg.delayBinNum ) )
+    else:
+        raise Exception("binning mode not valid")
 
 #Read in TOF data and calulate difference, in chunks
 shotsTof  = tr.select('shotsTof',  where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
