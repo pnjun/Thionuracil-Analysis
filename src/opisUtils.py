@@ -53,14 +53,19 @@ class evFitter:
 
             self.peaks.append( tofs )
 
-    def leastSquare(self, ampliRange, enRange, FWHM = 2):
+    @staticmethod
+    def gauss(x, center, fwhm):
+            ''' Gaussian fitting function (helper)'''
+            return np.exp( - 4*np.log(2.)*(x-center)**2/fwhm**2)
+
+    def leastSquare(self, ampliRange, enRange, FWHM = 1.6):
         if not hasattr(self, 'peaks'):
             raise Exception("No peak data loaded. Use loadPeak first")
 
         @cuda.jit("float32(float32,float32,float32)", device=True, inline=True)
         def gauss(x, center, fwhm):
-            ''' Iniline CUDA gaussian helper function '''
-            return math.exp( - 4*math.log(2.)*(x-center)**2/fwhm**2)
+                ''' Compiled gauss version for CUDA kernel '''
+                return math.exp( - 4*math.log(2.)*(x-center)**2/fwhm**2)
 
         @cuda.jit()
         def getResiduals(energyIn, tracesIn, ampliesIn, offsetsIn,

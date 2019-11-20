@@ -40,7 +40,31 @@ energies = [ evConv[n](trace.columns) for n,trace in enumerate(traces) ]
 
 fitter = ou.evFitter(ou.GAS_ID_AR)
 fitter.loadPeaks(traces, energies, 222)
-#fitter.plotPeaks(25)
-out = fitter.leastSquare( np.linspace(-25, 0, 8), np.linspace(-5,5,8) )
-print(out)
-print(out.shape)
+
+aRange = np.linspace(-150, 0, 16)
+eRange = np.linspace(-5,5,32)
+
+out = fitter.leastSquare( aRange, eRange )
+
+#HACK TO BE FIXED:
+#reshape array to be 2d shotsnum * <> in order for argmin to work on axis 0
+#then use unravel index on the reshaped array to get out the x and y indexes
+#of optimal fit parameters
+new = out.reshape(out.shape[0], -1)
+minid = np.unravel_index( new.argmin(axis=1), out.shape[1:] )
+
+#trace for plotting
+traceid = 49*3+18
+
+#Load xaxis energies back from GPU ..... facepalm
+energies = fitter.peaks[0][0][0].get()
+
+#get optimal fit parameters from minid
+ampli = aRange[minid[0][traceid]]
+centralEn = eRange[minid[1][traceid]] + energies[energies.shape[0]//2]
+
+#plot fit superimposed on data
+print(ampli, centralEn)
+fitter.plotPeaks(traceid, False)
+plt.plot( energies, ampli * fitter.gauss( energies, centralEn , 1.6 ) )
+plt.show()
