@@ -3,7 +3,7 @@ from collections import namedtuple
 import pandas as pd
 import numpy as np
 from numba import cuda
-import cmath
+import math
 import cupy as cp
 
 import matplotlib.pyplot as plt
@@ -47,9 +47,9 @@ class evFitter:
 
                 #create cupy arrays with tof and energy data and store
                 #hanled in a tuple
-                tofs.append( ( cp.array(ener[s:e], dtype=cp.float32)),
+                tofs.append( ( cp.array(ener[s:e], dtype=cp.float32) ,
                                cp.array(tof.iloc[:,s:e].to_numpy(),
-                                        dtype=cp.float32)) ) )
+                                        dtype=cp.float32) ) )
 
             self.peaks.append( tofs )
 
@@ -57,10 +57,10 @@ class evFitter:
         if not hasattr(self, 'peaks'):
             raise Exception("No peak data loaded. Use loadPeak first")
 
-        @cuda.jit(device=True, inline=True)
+        @cuda.jit("float32(float32,float32,float32)", device=True, inline=True)
         def gauss(x, center, fwhm):
             ''' Iniline CUDA gaussian helper function '''
-            return cmath.exp( - 4*cmath.log(2)*(x-center)**2/fwhm**2)
+            return math.exp( - 4*math.log(2.)*(x-center)**2/fwhm**2)
 
         @cuda.jit()
         def getResiduals(energyIn, tracesIn, ampliesIn, offsetsIn,
@@ -81,29 +81,33 @@ class evFitter:
             ampli    = ampliesIn[cuda.threadIdx.x]
             centerEn = offsetsIn[cuda.threadIdx.y] + energyIn[len//2]
 
-            residual = 0
+            residual = 0.
             for i in range(len):
-                residual += ( traces[cuda.blockIdx.x, i] -
-                              ampli * gauss( energy[i], centerEn, FWHM ))**2
+                residual += ( tracesIn[cuda.blockIdx.x, i] -
+                              ampli * gauss( energyIn[i], centerEn, FWHM ))**2
 
-            residuals[cuda.blockIdx.x,
-                      cuda.threadIdx.x,
-                      cuda.threadIdx.y] = residual
+            residualsOut[cuda.blockIdx.x,
+                         cuda.threadIdx.x,
+                         cuda.threadIdx.y] = residual
+
+        amplinum = ampliRange.shape[0]
+        offsetnum = enRange.shape[0]
+        if (amplinum*offsetnum % 32) != 0:
+               raise Exception ("len(ampliRange) * len(enRange) must be a multiple of 32")
 
         #Allocate space for output array on GPU
-        residuals = cp.zeros( (self.shotsNum,
-                               ampliRange.shape[0],
-                               enRange.shape[0] ), dtype=cupy.float32) )
+        residuals = cp.zeros( (self.shotsNum, amplinum, offsetnum ),
+                               dtype=cp.float32)
 
-        peakId = 0
 
         #Allocate space for amplitudes and offset arrays
         amplies = cp.array(ampliRange, dtype=cp.float32)
         offsets = cp.array(enRange, dtype=cp.float32)
 
-        en, traces = self.peaks[peakId]
-        gridDim = traces.shape[0]
-        blockDim =  amplies.shape[0], offsets.shape[0]
+        en, traces = self.peaks[0][0] #[first peak] [first tof]
+
+        gridDim = self.shotsNum
+        blockDim =  amplinum, offsetnum
         getResiduals [ gridDim , blockDim ] (en, traces,
                                              amplies, offsets, residuals)
 

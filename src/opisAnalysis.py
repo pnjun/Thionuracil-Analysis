@@ -16,7 +16,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
            'time'     : { #'start' : datetime(2019,3,31,6,54,0).timestamp(),
                           #'stop'  : datetime(2019,3,31,6,56,0).timestamp(),
                           'start' : datetime(2019,4,1,2,51,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,2,51,2).timestamp(),
+                          'stop'  : datetime(2019,4,1,2,51,1).timestamp(),
                         },
       }
 
@@ -41,5 +41,6 @@ energies = [ evConv[n](trace.columns) for n,trace in enumerate(traces) ]
 fitter = ou.evFitter(ou.GAS_ID_AR)
 fitter.loadPeaks(traces, energies, 222)
 #fitter.plotPeaks(25)
-out = fitter.leastSquare( np.arange(-25, 0, 10), np.arange(-5,5,10) )
+out = fitter.leastSquare( np.linspace(-25, 0, 8), np.linspace(-5,5,8) )
 print(out)
+print(out.shape)
