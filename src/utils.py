@@ -157,11 +157,11 @@ class mainTofEvConv:
 
     def ev2tof(self, e):
         #Parameters for evConversion
-        l1 = 0.05      #meters
-        l2 = 1.734     #meters
-        l3 = 0.003
+        l1 = 0.09#0.09      #meters
+        l2 = 1.695#1.694     #meters
+        l3 = 0.002
         m_over_2e = 5.69 / 2
-        evOffset = 0.6 #eV
+        evOffset = 0.55 #eV
 
         new_e = e - evOffset
         return np.sqrt(m_over_2e) * ( l1 / np.sqrt(new_e) +
