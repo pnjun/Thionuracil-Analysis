@@ -16,7 +16,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
            'time'     : { #'start' : datetime(2019,3,31,6,54,0).timestamp(),
                           #'stop'  : datetime(2019,3,31,6,56,0).timestamp(),
                           'start' : datetime(2019,4,1,2,51,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,2,52,0).timestamp(),
+                          'stop'  : datetime(2019,4,1,2,51,50).timestamp(),
                         },
       }
 
@@ -32,26 +32,33 @@ CH = 1
 tof = h5data.select('tof1',
                      where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
                             'pulseId in pulses.index'] )
+tof = tof.mean(level=1)
 
 evConv = ou.evConv()
-maxima = []
 integ =  []
-for i in range(49):
-    max = evConv[CH](tof.iloc[i::49].mean().idxmin())
-    maxima.append(max)
-    integ.append(tof.iloc[i::49].mean().sum())
-    if i % 5 == 0:
-        plt.plot( evConv[CH](tof.iloc[0].index) ,   tof.iloc[i::49].mean() + i*5 )
+fwhm = []
+
+maxIdx = tof.idxmin(axis=1)
+maxima = evConv[CH](maxIdx)
+integ  = tof.sum(axis=1)
+
+
+for n, trace in tof.iterrows():
+    if n % 5 == 0:
+        plt.plot( evConv[CH](tof.iloc[0].index) , trace + n*5 )
 
 def fit(x, m, q):
     return x*m + q
 
+maxima = np.array(maxima)
+maxima += 15.8 # Photon energy = electron energy + bounding energy
 x = np.array(range(len(maxima)))
 popt, pconv = curve_fit(fit, x, maxima)
 
 plt.figure()
 plt.plot(x, maxima, 'o')
-#plt.plot(x, integ)
 plt.plot(x, fit(x, *popt))
 print(popt)
+plt.figure()
+plt.plot(x, integ)
 plt.show()
