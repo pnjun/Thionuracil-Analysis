@@ -1,8 +1,12 @@
 from collections import namedtuple
+import warnings
 
 import pandas as pd
 import numpy as np
+
+import numba
 from numba import cuda
+
 import math
 import cupy as cp
 
@@ -14,117 +18,318 @@ GAS_ID_AR = 0
 
 class evFitter:
     def __init__(self, gasID):
-        #Parameters of a peak for fitting: energy, relative amplitude and
-        #range to use for fitting at either side of peak position (in ev)
-        Peak = namedtuple('Peak', 'en ampl width')
+        #Parameters of a peak for fitting: energy and relative amplitude
+        self.FWHM = 1.7
         if gasID == GAS_ID_AR:
-            self.peaksData = [ Peak( 15.8, 1.00, 6 ),
-                               Peak( 29.3, 0.21, 3 ) ]
+                        #      energy  ampli
+            self.peaksData = [ [ 15.8, 1.00 ],
+                               [ 29.3, 0.21 ]]
+            #where to cut the spectrum in eV
+            self.evCuts = [10, 33]
+
+            #How much samples to use at both ends of spectrum to allow for
+            #offset fitting (should be a multiple of 16)
+            self.padding = 64
 
         else:
             raise Exception("Gas id not valid")
 
-    def loadPeaks(self, data, energies, undulEv):
+    def loadTraces(self, data, evConv, evGuess):
+        ''' Loads Tof traces and corresponding energy axis to
+            the GPU memory. Each array is sliced so that only
+            the relevant peak data is loaded '''
         assert(data[0].shape == data[1].shape )
         assert(data[0].shape == data[2].shape )
         assert(data[0].shape == data[2].shape )
-        self.shotsNum = data[0].shape[0]
-        # Will be filled with tuples of ( energyvals, tofdata )
-        # for each peak. energyvals and tofdata are hanles to
-        # cuda arrays storing the data
-        self.peaks = []
 
-        #Iteration on peaks
-        for peak in self.peaksData:
-            tofs = []
+        #Get peak bounds in samples for tof slicing. We use channel 0
+        #Other channels might have sligtly different values, but
+        #we are interested in a rough cut and doing it this way
+        #ensures that all tofs are sliced in the same place
+        baseEn = evConv[0](data[0].columns)
+        s = np.abs( baseEn - (evGuess - self.evCuts[0] )).argmin()
+        e = np.abs( baseEn - (evGuess - self.evCuts[1] )).argmin()
+        if e-s > 1024:
+            raise Exception("Slice is too long. Max len 1024 due to cuda limitations in combineTofs")
+        self.ROIBounds = slice(s-self.padding,e+self.padding)
 
-            #For each peak, we have one energy and tof couple for
-            #each OPIS channel.
-            for tof, ener in zip(data, energies):
-                #start and end indexes of peak data
-                s = np.abs( ener - (undulEv - peak.en + peak.width) ).argmin()
-                e = np.abs( ener - (undulEv - peak.en - peak.width) ).argmin()
+        # Will be filled with of energyvals and tofdata\]
+        # Energies are calculated twice: once for normal tof samples
+        # and once at half-step positions. This is needed because
+        # oppisite spectrometers might have odd offset, resulting in a
+        # tof trace that is half step ahead or behind the 'normal' tof
+        # samples (since the offset is split in half between the oppisite
+        # traces).
+        self.traces = []
+        self.energies = []
+        #Iterate over the 4 TOFs
+        for n, tof in enumerate(data):
+            self.traces.append( tof.iloc[:,self.ROIBounds].to_numpy() )
+            cols = tof.columns.to_numpy(dtype=np.float32)[self.ROIBounds]
+            cols2 = cols + (cols[1] - cols[0])/2
+            self.energies.append(np.array([ evConv[n](cols),
+                                            evConv[n](cols2)]))
 
-                #create cupy arrays with tof and energy data and store
-                #hanled in a tuple
-                tofs.append( ( cp.array(ener[s:e], dtype=cp.float32) ,
-                               cp.array(tof.iloc[:,s:e].to_numpy(),
-                                        dtype=cp.float32) ) )
+        #Put everything in a matrix and send it to GPU memory
+        #Shape: (shotsNum, 4, samples). The 4 is for the 4 tofs spectrometers
+        self.traces = cp.array(np.stack(self.traces, axis=1), dtype=cp.float32)
+        #Shape: (4, 2, samples). 4 spectromenters, 2 for integer/halfinteger steps
+        self.energies=cp.array(np.stack(self.energies,axis=0),dtype=cp.float32)
 
-            self.peaks.append( tofs )
+        self.shotsNum = self.traces.shape[0]
+        self.traceLen = self.traces.shape[2]
+
+    def getOffsets(self, oRange=None):
+        ''' Scans the traces finding the optimal offsets (i.e. offset
+            for which the difference is minimum) between tofs 0 and 2
+            and 1 and 3. Orange must be lower than'''
+
+        if not hasattr(self, 'traces'):
+            raise Exception("No peak data loaded. Use load first")
+        if (oRange == None):
+            oRange = self.padding * 2
+        if oRange > self.padding * 2:
+            raise Exception("oRange must be less than 2*padding")
+        if (oRange % 32 != 0):
+            warnings.warn("oRange should be a multiple of 32 for full occupancy")
+
+        padding = self.padding
+        traceLen = self.traceLen
+
+        @cuda.jit()
+        def getOffsetsDiff(tr1, tr2, diffsOut):
+            '''Calculates the difference between trA and trB for all
+               offsets within -oRange and +oRange. Each block does
+               a shot, each thread does one offset. For full occupancy
+               32 or 64 threads per block should be used'''
+
+            #calculate the integral of the difference.
+            #Each thread does one offset
+            res = 0
+            off = -cuda.blockDim.x // 2 + cuda.threadIdx.x
+            for i in range(padding, traceLen - padding):
+                res += abs(tr1[cuda.blockIdx.x,i] - tr2[cuda.blockIdx.x,i+off])
+
+            diffsOut[cuda.blockIdx.x, cuda.threadIdx.x] = res
+
+        diffs = cp.zeros( (self.shotsNum, oRange) , dtype=cp.float32)
+
+        getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,1],
+                                               self.traces[:,3],
+                                               diffs)
+
+        self.yOffsets = diffs.argmin(axis=1) - oRange//2
+
+        getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,0],
+                                               self.traces[:,2],
+                                               diffs)
+        self.xOffsets = -(diffs.argmin(axis=1) - oRange//2)
+        #return diffs.get()
 
     @staticmethod
     def gauss(x, center, fwhm):
             ''' Gaussian fitting function (helper)'''
             return np.exp( - 4*np.log(2.)*(x-center)**2/fwhm**2)
 
-    def leastSquare(self, ampliRange, enRange, FWHM = 1.6):
-        if not hasattr(self, 'peaks'):
-            raise Exception("No peak data loaded. Use loadPeak first")
+    def spectrumFit(self, x):
+        ret = 0.
+        for p in self.peaksData:
+            ret += p[1] * self.gauss(x, p[0], self.FWHM)
+        return ret
+
+    def leastSquare(self, ampliRange, enRange):
+        if not hasattr(self, 'xOffsets'):
+            raise Exception("No offset data loaded. Use getOffsets first")
 
         @cuda.jit("float32(float32,float32,float32)", device=True, inline=True)
         def gauss(x, center, fwhm):
                 ''' Compiled gauss version for CUDA kernel '''
                 return math.exp( - 4*math.log(2.)*(x-center)**2/fwhm**2)
 
+        @cuda.jit("float32(float32,float32[:,:],float32)", device=True)
+        def spectrumFit(x, peaks, fwhm):
+            ret = 0.
+            for p in range(peaks.shape[0]):
+                ret += peaks[p,1] * gauss(x, peaks[p,0], fwhm)
+            return ret
+
+        padding = self.padding
+        traceLen = self.traceLen
+        FWHM = self.FWHM
         @cuda.jit()
-        def getResiduals(energyIn, tracesIn, ampliesIn, offsetsIn,
+        def getResiduals(ener, traces,
+                         xOffs, yOffs, peaks,
+                         ampliRange, enRange,
                          residualsOut):
             ''' Calculate residuals for fitting. Each block takes care of a
             shot. Each thread in a block takes care of a point in parameter
-            space (i.e. a couple of amplitude/offset values).
+            space (i.e. a couple of amplitude/energy values).
             Inputs:
-            The energy index corresponing to the tof data (1d shotlen array)
-            The tof data (2d shotnum*shotlen array)
-            The array of amplidude values to be tested (1d n array)
-            The array of energy offset values to be tested (1d m array)
+            The energy index corresponing to the tof data (self.energies)
+            The tof data (self.traces)
+            The x and y offsets
+            Peaks parameters for fiter function
+            Range of amplidudes and energies to try
             Output:
-            Residuals for all shots and all combinations of amplidude and
-            offset (3d shotnum * n *m array) '''
+            Residuals for all shots and all combinations of amplidude/energy
+            (3d shotnum * ampliLen * enLen array) '''
 
-            len = energyIn.shape[0]
-            ampli    = ampliesIn[cuda.threadIdx.x]
-            centerEn = offsetsIn[cuda.threadIdx.y] + energyIn[len//2]
+            # Params value of the current thread
+            ampli = ampliRange[cuda.threadIdx.x]
+            photonEn = enRange[cuda.threadIdx.y]
 
-            residual = 0.
-            for i in range(len):
-                residual += ( tracesIn[cuda.blockIdx.x, i] -
-                              ampli * gauss( energyIn[i], centerEn, FWHM ))**2
+            res = 0.
+            for i in range(padding, traceLen-padding):
+                ##TODO: FIX o1 and o2 calculation to match the one in plotFitted
+
+                # TOFS 0 and 2
+                #for even(odd) offset we use normal(halfstep) energy scale
+                off = xOffs[cuda.blockIdx.x]
+                par = off % 2
+                o1 = off//2
+                #No branching, all threads have same offset
+                o2 = o1 if not par else o1 - 1
+
+                res += ( ampli * spectrumFit( photonEn-ener[0 ,par, i + o1 ],
+                                              peaks, FWHM)
+                         - traces[cuda.blockIdx.x, 0, i] )**2
+
+                res += ( ampli * spectrumFit( photonEn-ener[2 ,par, i + o2 ],
+                                              peaks, FWHM)
+                         - traces[cuda.blockIdx.x, 2, i + off] )**2
+
+                # TOFS 1 and 3
+                off = yOffs[cuda.blockIdx.x]
+                par = off % 2
+                o1 = off//2
+                #No branching, all threads have same offset
+                o2 = o1 if not par else o1 - 1
+
+                res += ( ampli * spectrumFit( photonEn-ener[1 ,par, i + o1 ],
+                                              peaks, FWHM)
+                         - traces[cuda.blockIdx.x, 1, i] )**2
+                res += ( ampli * spectrumFit( photonEn-ener[3 ,par, i + o2 ],
+                                              peaks, FWHM)
+                         - traces[cuda.blockIdx.x, 3, i + off] )**2
 
             residualsOut[cuda.blockIdx.x,
                          cuda.threadIdx.x,
-                         cuda.threadIdx.y] = residual
+                         cuda.threadIdx.y] = res
 
         amplinum = ampliRange.shape[0]
-        offsetnum = enRange.shape[0]
-        if (amplinum*offsetnum % 32) != 0:
+        enNum = enRange.shape[0]
+        if (amplinum*enNum % 32) != 0:
                raise Exception ("len(ampliRange) * len(enRange) must be a multiple of 32")
 
         #Allocate space for output array on GPU
-        residuals = cp.zeros( (self.shotsNum, amplinum, offsetnum ),
+        residuals = cp.zeros( (self.shotsNum, amplinum, enNum ),
                                dtype=cp.float32)
 
 
         #Allocate space for amplitudes and offset arrays
         amplies = cp.array(ampliRange, dtype=cp.float32)
-        offsets = cp.array(enRange, dtype=cp.float32)
-
-        en, traces = self.peaks[0][0] #[first peak] [first tof]
+        energies = cp.array(enRange, dtype=cp.float32)
+        peaks = cp.array(self.peaksData, dtype=cp.float32)
 
         gridDim = self.shotsNum
-        blockDim =  amplinum, offsetnum
-        getResiduals [ gridDim , blockDim ] (en, traces,
-                                             amplies, offsets, residuals)
+        blockDim =  amplinum, enNum
+        getResiduals [ gridDim , blockDim ] (self.energies, self.traces,
+                                             self.xOffsets, self.yOffsets,
+                                             peaks, amplies, energies,
+                                             residuals)
 
-        return residuals.get()
+        #print(cp.get_default_memory_pool().used_bytes())
+        del amplies
+        del energies
+        del peaks
 
-    def plotPeaks(self, traceIdx = 0, show=True):
-        if not hasattr(self, 'peaks'):
+        resShape = residuals.shape
+        #find indexes of minimum residuals for every shot
+        residuals = residuals.reshape(residuals.shape[0], -1)
+        residulas_idx = cp.unravel_index( residuals.argmin(axis=1),
+                                          resShape[1:] )
+
+        #Extract the parameter values at the indexes found in previous step
+        self.fitResults = np.array( [ ampliRange[ residulas_idx[0].get() ],
+                                      enRange   [ residulas_idx[1].get() ] ] ).T
+        del residuals
+        del residulas_idx
+        return self.fitResults
+
+    def plotFitted(self, traceIdx = 0, show=True):
+        if not hasattr(self, 'fitResults'):
+            raise Exception("No fit results. Use leastSquare first")
+
+        plt.figure()
+        tofs = self.traces[traceIdx]
+        fitAmpli, fitEn = self.fitResults[traceIdx]
+        #fitAmpli, fitEn = -60, 222
+        print(fitAmpli, fitEn)
+        waterfall = 70
+
+        #Tofs 0 and 2
+        off = self.xOffsets.get()[traceIdx]
+        par = off % 2; o1 = off//2
+        o2 = o1 if not par else o1 - 1
+
+        if off - self.padding == 0:
+            trSl = slice(self.padding + off, None )
+        else:
+            trSl = slice(self.padding + off, -self.padding + off )
+
+        t0En = self.energies[0 , par, self.padding+o1 : -self.padding+o1].get()
+        t2En = self.energies[2 , par, self.padding+o2 : -self.padding+o2].get()
+
+        plt.plot(t0En, tofs[0, self.padding : -self.padding].get())
+        plt.plot(t2En, tofs[2, trSl ].get() )
+        plt.plot(t0En, fitAmpli * self.spectrumFit(fitEn-t0En) )
+
+        #Tofs 1 and 3
+        off = self.yOffsets.get()[traceIdx]
+        par = off % 2; o1 = off//2
+        o2 = o1 if not par else o1 - 1
+
+        if off - self.padding == 0:
+            trSl = slice(self.padding + off, None )
+        else:
+            trSl = slice(self.padding + off, -self.padding + off )
+
+        t1En = self.energies[1 , par, self.padding+o1 : -self.padding+o1].get()
+        t3En = self.energies[3 , par, self.padding+o2 : -self.padding+o2].get()
+
+        plt.plot(t1En, tofs[1, self.padding : -self.padding].get() + waterfall)
+        plt.plot(t3En, tofs[3, trSl ].get() + waterfall)
+        plt.plot(t1En, fitAmpli * self.spectrumFit(fitEn-t1En) + waterfall)
+
+        if show:
+            plt.show()
+
+    def plotTraces(self, traceIdx = 0, shift = False, show=True):
+        if not hasattr(self, 'traces'):
             raise Exception("No peak data loaded. Use loadPeak first")
 
-        for peak in self.peaks:
-            for en, trace in peak:
-                plt.plot(en.get(), trace[traceIdx].get())
+        if not hasattr(self, 'xOffsets') and shift:
+            raise Exception("Call getOffsets before using shift = True")
+        plt.figure()
+        tofs = self.traces[traceIdx]
+
+        for n, trace in enumerate(tofs):
+            o = 0
+            if n == 2 and shift:
+                o = self.xOffsets.get()[traceIdx]
+            if n == 3 and shift:
+                o = self.yOffsets.get()[traceIdx]
+
+            waterfall = 0
+            if n % 2 != 0:
+                waterfall = 70
+
+            if o - self.padding == 0:
+                trSl = slice(self.padding + o, None )
+            else:
+                trSl = slice(self.padding + o, -self.padding + o )
+            plt.plot(trace.get()[trSl] + waterfall)
+
         if show:
             plt.show()
 
@@ -137,7 +342,7 @@ class evConv:
     def __init__(self):
         evMax = 350
 
-        params = np.array(
+        self.params = np.array(
                  [[ 1.87851827E+002, -1.71740614E+002, 1.68133279E+004, -1.23094641E+002, 1.85483300E+001 ],
                   [ 3.03846564E+002, -1.69947313E+002, 1.62788476E+004, -8.80818471E+001, 9.88444848E+000 ],
                   [ 2.13931606E+002, -1.71492500E+002, 1.61927408E+004, -1.18796787E+002, 1.66342468E+001 ],
@@ -145,9 +350,9 @@ class evConv:
 
         # generate ev ranges for each channel depeding on their retarder setting
         # (retarder is second column of params )
-        evRanges = [ np.arange(-evMin+1e-3, evMax, 1) for evMin in params[:,1] ]
+        evRanges = [ np.arange(-evMin+1e-3, evMax, 1) for evMin in self.params[:,1] ]
         # Calculate correspoiding TOFS for interpolation
-        tofVals  = [ self.ev2tof( channel, evRange ) for channel, evRange in zip(params, evRanges) ]
+        tofVals  = [ self.ev2tof( channel, evRange ) for channel, evRange in enumerate(evRanges) ]
         # Initialize interpolators
         self.interpolators = [ interpolate.interp1d(tof, evRange, kind='linear') \
                                for tof, evRange in zip(tofVals, evRanges) ]
@@ -159,5 +364,6 @@ class evConv:
             return self.interpolators[channel](tof)
         return foo
 
-    def ev2tof(self, p, e):
+    def ev2tof(self, n, e):
+        p = self.params[n]
         return (  p[4] + p[0] / np.sqrt(e + p[1]) + p[2] / ( e + p[3] )**1.5 ) / 1000

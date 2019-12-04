@@ -16,7 +16,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
            'time'     : { #'start' : datetime(2019,3,31,6,54,0).timestamp(),
                           #'stop'  : datetime(2019,3,31,6,56,0).timestamp(),
                           'start' : datetime(2019,4,1,2,51,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,2,51,1).timestamp(),
+                          'stop'  : datetime(2019,4,1,2,51,50).timestamp(),
                         },
       }
 
@@ -36,35 +36,18 @@ tofs =   [ h5data.select(f'tof{n}',
 
 traces   = [ tofs[n] for n in range(4) ]
 evConv = ou.evConv()
-energies = [ evConv[n](trace.columns) for n,trace in enumerate(traces) ]
 
+amplR = np.linspace(-80, -0, 12)
+enerR = np.linspace(210, 230, 48)
+
+TRACEID = 26
 fitter = ou.evFitter(ou.GAS_ID_AR)
-fitter.loadPeaks(traces, energies, 222)
+fitter.loadTraces(traces, evConv, 222)
+fitter.getOffsets()
+fit = fitter.leastSquare(amplR, enerR)
 
-aRange = np.linspace(-150, 0, 16)
-eRange = np.linspace(-5,5,32)
-
-out = fitter.leastSquare( aRange, eRange )
-
-#HACK TO BE FIXED:
-#reshape array to be 2d shotsnum * <> in order for argmin to work on axis 0
-#then use unravel index on the reshaped array to get out the x and y indexes
-#of optimal fit parameters
-new = out.reshape(out.shape[0], -1)
-minid = np.unravel_index( new.argmin(axis=1), out.shape[1:] )
-
-#trace for plotting
-traceid = 49*3+18
-
-#Load xaxis energies back from GPU ..... facepalm
-energies = fitter.peaks[0][0][0].get()
-
-#get optimal fit parameters from minid
-ampli = aRange[minid[0][traceid]]
-centralEn = eRange[minid[1][traceid]] + energies[energies.shape[0]//2]
-
-#plot fit superimposed on data
-print(ampli, centralEn)
-fitter.plotPeaks(traceid, False)
-plt.plot( energies, ampli * fitter.gauss( energies, centralEn , 1.6 ) )
+fit = fit.reshape((fit.shape[0]//49,49,2))
+plt.plot(fit.mean(axis=0)[:,1])
+plt.plot(fit.mean(axis=0)[:,0])
 plt.show()
+#fitter.plotFitted(TRACEID)
