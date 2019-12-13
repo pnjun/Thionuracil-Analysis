@@ -18,14 +18,16 @@ GAS_ID_AR = 0
 
 class evFitter:
     def __init__(self, gasID):
+        self.FWHM = 2  #FWHM of FEL to be used for fitting
+        self.ignoreThreshold = 25. #minimum integral for a shot to be considered valid
+
         #Parameters of a peak for fitting: energy and relative amplitude
-        self.FWHM = 1.7
         if gasID == GAS_ID_AR:
                         #      energy  ampli
             self.peaksData = [ [ 15.8, 1.00 ],
                                [ 29.3, 0.21 ]]
             #where to cut the spectrum in eV
-            self.evCuts = [10, 33]
+            self.evCuts = [9, 34]
 
             #How much samples to use at both ends of spectrum to allow for
             #offset fitting (should be a multiple of 16)
@@ -53,7 +55,7 @@ class evFitter:
             raise Exception("Slice is too long. Max len 1024 due to cuda limitations in combineTofs")
         self.ROIBounds = slice(s-self.padding,e+self.padding)
 
-        # Will be filled with of energyvals and tofdata\]
+        # Will be filled with of energyvals and tofdata
         # Energies are calculated twice: once for normal tof samples
         # and once at half-step positions. This is needed because
         # oppisite spectrometers might have odd offset, resulting in a
@@ -79,7 +81,7 @@ class evFitter:
         self.shotsNum = self.traces.shape[0]
         self.traceLen = self.traces.shape[2]
 
-    def getOffsets(self, oRange=None):
+    def getOffsets(self, oRange=None, getdiffs=False):
         ''' Scans the traces finding the optimal offsets (i.e. offset
             for which the difference is minimum) between tofs 0 and 2
             and 1 and 3. Orange must be lower than'''
@@ -101,7 +103,7 @@ class evFitter:
             '''Calculates the difference between trA and trB for all
                offsets within -oRange and +oRange. Each block does
                a shot, each thread does one offset. For full occupancy
-               32 or 64 threads per block should be used'''
+               32 or 64 threads per block should be used.'''
 
             #calculate the integral of the difference.
             #Each thread does one offset
@@ -109,22 +111,25 @@ class evFitter:
             off = -cuda.blockDim.x // 2 + cuda.threadIdx.x
             for i in range(padding, traceLen - padding):
                 res += abs(tr1[cuda.blockIdx.x,i] - tr2[cuda.blockIdx.x,i+off])
-
             diffsOut[cuda.blockIdx.x, cuda.threadIdx.x] = res
 
+        if getdiffs: ret = []
         diffs = cp.zeros( (self.shotsNum, oRange) , dtype=cp.float32)
-
-        getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,1],
-                                               self.traces[:,3],
-                                               diffs)
-
-        self.yOffsets = diffs.argmin(axis=1) - oRange//2
 
         getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,0],
                                                self.traces[:,2],
                                                diffs)
         self.xOffsets = -(diffs.argmin(axis=1) - oRange//2)
-        #return diffs.get()
+        if getdiffs: ret.append(diffs.get())
+
+        getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,1],
+                                               self.traces[:,3],
+                                               diffs)
+        self.yOffsets = diffs.argmin(axis=1) - oRange//2
+        if getdiffs: ret.append(diffs.get())
+
+        if getdiffs:
+            return ret
 
     @staticmethod
     def gauss(x, center, fwhm):
@@ -256,6 +261,19 @@ class evFitter:
         del residulas_idx
         return self.fitResults
 
+    def ignoreMask(self, threshhold = None, getRaw=False):
+        '''Returns a mask for the shots. True me
+        ans a shot should be ignored'''
+        if threshhold is None: threshhold = self.ignoreThreshold
+
+        integ = cp.linalg.norm(self.traces, axis=2)
+        mask  = cp.any( integ < threshhold, axis=1 )
+
+        if getRaw:
+            return mask.get(), integ.get()
+        else:
+            return mask.get()
+
     def plotFitted(self, traceIdx = 0, show=True):
         if not hasattr(self, 'fitResults'):
             raise Exception("No fit results. Use leastSquare first")
@@ -265,7 +283,7 @@ class evFitter:
         fitAmpli, fitEn = self.fitResults[traceIdx]
         #fitAmpli, fitEn = -60, 222
         print(fitAmpli, fitEn)
-        waterfall = 70
+        waterfall = 50
 
         #Tofs 0 and 2
         off = self.xOffsets.get()[traceIdx]

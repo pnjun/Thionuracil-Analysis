@@ -16,7 +16,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
            'time'     : { #'start' : datetime(2019,3,31,6,54,0).timestamp(),
                           #'stop'  : datetime(2019,3,31,6,56,0).timestamp(),
                           'start' : datetime(2019,4,1,2,51,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,2,55,0).timestamp(),
+                          'stop'  : datetime(2019,4,1,2,51,10).timestamp(),
                         },
       }
 
@@ -32,13 +32,13 @@ CH = 1
 tof = h5data.select('tof1',
                      where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
                             'pulseId in pulses.index'] )
-tof = tof.mean(level=1)
+#tof = tof.mean(level=1)
 evConv = ou.evConv()
 
 maxIdx = tof.idxmin(axis=1)
 maxVal = tof.min(axis=1)
 maxEv = evConv[CH](maxIdx)
-integ  = tof.sum(axis=1)
+integ  = (tof**2).sum(axis=1)
 
 def getFWHM(row):
     a =  np.where(np.diff(np.signbit(row)))[0]
@@ -49,11 +49,16 @@ def getFWHM(row):
 boundsIdx = tof.sub( maxVal/2, axis=0 ).apply(getFWHM, axis=1, raw=True)
 boundsTof = [ tof.columns[bounds] for bounds in boundsIdx ]
 boundsEv  = [ evConv[CH](bTof) for bTof in boundsTof ]
-fwhm = [ bEv[0] - bEv[1] for bEv in boundsEv ]
+fwhm = np.array([ bEv[0] - bEv[1] for bEv in boundsEv ])
 
+#Invalidate clearly wrong points
+fwhm[fwhm > 4] = np.nan
+
+'''
 for n, trace in tof.iterrows():
     if n % 5 == 0:
         plt.plot( evConv[CH](tof.iloc[0].index) , trace + n*5 )
+'''
 
 def fit(x, m, q):
     return x*m + q
@@ -69,8 +74,8 @@ plt.plot(x, fit(x, *popt))
 print(popt)
 plt.figure('fwhm')
 plt.plot(x, fwhm)
+plt.figure('integ')
+plt.plot(x, integ)
 plt.figure('scatter')
-plt.plot(maxEv, fwhm, 'o')
-#plt.figure()
-#plt.plot(x, integ)
+plt.plot(integ, fwhm, 'o')
 plt.show()

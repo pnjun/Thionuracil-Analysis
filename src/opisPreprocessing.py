@@ -27,7 +27,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
            'output'   : {
                           'folder' : '/media/Fast1/ThioUr/processed/',
                           # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.
-                          'fname'  :  'opistest_.h5' #second_block_opis.h5',
+                          'fname'  :  'opistest.h5' #second_block_opis.h5',
                         },
            'hdf'      : { 'opisTr0'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
                           'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
@@ -77,7 +77,7 @@ cfg = AttrDict(cfg)
 def main():
     outfname = uuid.uuid4().hex + '.temp' if cfg.output.fname == 'AUTO' else cfg.output.fname
 
-    fout = pd.HDFStore(cfg.output.folder + outfname, complib = 'zlib', complevel = 1)
+    fout = pd.HDFStore(cfg.output.folder + outfname)#, complib = 'zlib', complevel = 1)
 
     flist = [ cfg.data.path + fname for fname in cfg.data.files ] if isinstance(cfg.data.files, tuple) else glob.glob(cfg.data.path + cfg.data.files)
     flist = sorted(flist)
