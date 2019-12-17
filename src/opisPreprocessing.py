@@ -22,12 +22,15 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files'    : ['FLASH2_USER1-2019-04-01T0238.h5']  #'FLASH2_USER1-2019-0?-[30][0123789]*.h5' #['FLASH2_USER1-2019-03-31T0500.h5'] , # List of files to process. All files must have the same number of shots per macrobunch
+                          'files': ['FLASH2_USER1-2019-03-31T0700.h5'] #['FLASH2_USER1-2019-04-01T0238.h5]
+                          #'FLASH2_USER1-2019-0?-[30][0123789]*.h5'
+                          #['FLASH2_USER1-2019-03-31T0500.h5'] ,
+                          # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : {
                           'folder' : '/media/Fast1/ThioUr/processed/',
                           # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.
-                          'fname'  :  'opistest.h5' #second_block_opis.h5',
+                          'fname'  :  'opistest2.h5' #second_block_opis.h5',
                         },
            'hdf'      : { 'opisTr0'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
                           'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
@@ -42,29 +45,29 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                         },
            'slicing0' : { 'offset'   : 263,   #Offset of first slice in samples (time zero)
                           'period'   : 3500.290,  #Rep period of FEL in samples
-                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'window'   : 1500,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 250,     #Skip fist samples of each slice (cuts off high energy electrons)
                           'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
            'slicing1' : { 'offset'   : 225,     #Offset of first slice in samples (time zero)
                           'period'   : 3500.302,  #Rep period of FEL in samples
-                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'window'   : 1500,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 250,     #Skip fist samples of each slice (cuts off high energy electrons)
                           'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
            'slicing2' : { 'offset'   : 220,     #Offset of first slice in samples (time zero)
                           'period'   : 3500.300,  #Rep period of FEL in samples
-                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'window'   : 1500,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 250,     #Skip fist samples of each slice (cuts off high energy electrons)
                           'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
            'slicing3' : { 'offset'   : 219,     #Offset of first slice in samples (time zero)
                           'period'   : 3500.297,  #Rep period of FEL in samples
-                          'window'   : 1400,  #Shot lenght in samples (cuts off low energy electrons)
-                          'skipNum'  : 350,     #Skip fist samples of each slice (cuts off high energy electrons)
+                          'window'   : 1500,  #Shot lenght in samples (cuts off low energy electrons)
+                          'skipNum'  : 250,     #Skip fist samples of each slice (cuts off high energy electrons)
                           'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },

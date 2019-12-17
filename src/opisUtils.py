@@ -19,7 +19,7 @@ GAS_ID_AR = 0
 class evFitter:
     def __init__(self, gasID):
         self.FWHM = 2  #FWHM of FEL to be used for fitting
-        self.ignoreThreshold = 25. #minimum integral for a shot to be considered valid
+        self.ignoreThreshold = 40. #minimum integral for a shot to be considered valid
 
         #Parameters of a peak for fitting: energy and relative amplitude
         if gasID == GAS_ID_AR:
@@ -27,11 +27,11 @@ class evFitter:
             self.peaksData = [ [ 15.8, 1.00 ],
                                [ 29.3, 0.21 ]]
             #where to cut the spectrum in eV
-            self.evCuts = [9, 34]
+            self.evCuts = [3, 33]
 
             #How much samples to use at both ends of spectrum to allow for
-            #offset fitting (should be a multiple of 16)
-            self.padding = 64
+            #offset fitting (should be a multiple of 32)
+            self.padding = 32
 
         else:
             raise Exception("Gas id not valid")
@@ -51,8 +51,9 @@ class evFitter:
         baseEn = evConv[0](data[0].columns)
         s = np.abs( baseEn - (evGuess - self.evCuts[0] )).argmin()
         e = np.abs( baseEn - (evGuess - self.evCuts[1] )).argmin()
-        if e-s > 1024:
-            raise Exception("Slice is too long. Max len 1024 due to cuda limitations in combineTofs")
+
+        if s < self.padding or e > data[0].shape[1] - self.padding:
+            raise Exception(f"Not enough data in slice or padding too long. s:e = {s}:{e} pad:{self.padding}")
         self.ROIBounds = slice(s-self.padding,e+self.padding)
 
         # Will be filled with of energyvals and tofdata
@@ -89,9 +90,9 @@ class evFitter:
         if not hasattr(self, 'traces'):
             raise Exception("No peak data loaded. Use load first")
         if (oRange == None):
-            oRange = self.padding * 2
-        if oRange > self.padding * 2:
-            raise Exception("oRange must be less than 2*padding")
+            oRange = self.padding
+        if oRange > self.padding:
+            raise Exception("oRange must be less than padding")
         if (oRange % 32 != 0):
             warnings.warn("oRange should be a multiple of 32 for full occupancy")
 
@@ -119,7 +120,7 @@ class evFitter:
         getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,0],
                                                self.traces[:,2],
                                                diffs)
-        self.xOffsets = -(diffs.argmin(axis=1) - oRange//2)
+        self.xOffsets = diffs.argmin(axis=1) - oRange//2
         if getdiffs: ret.append(diffs.get())
 
         getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,1],
@@ -351,11 +352,49 @@ class evFitter:
         if show:
             plt.show()
 
-class evConv:
+class geometricEvConv:
+    ''' Converts between tof and Ev for main chamber TOF spectrometer
+        Usage:
+        converter = mainTofEvConv(retarder)
+        energy = converter(tof)
+        Uses geometric model, retardationis currently fixed to 100V
+    '''
+    def __init__(self, retarder):
+        self.r = retarder
+
+        evMin = self.r + 1
+        evMax = self.r + 350
+
+        evRange = np.arange(evMin, evMax, 1)
+        tofVals  = [ self.ev2tof( n, evRange ) for n in range(4) ]
+        self.interpolators = [ interpolate.interp1d(tof, evRange, kind='linear') for tof in tofVals ]
+
+    def __getitem__(self, channel):
+        def foo(tof):
+            if isinstance(tof, pd.Index):
+                tof = tof.to_numpy(dtype=np.float32)
+            return self.interpolators[channel](tof)
+        return foo
+
+    def ev2tof(self, n ,e):
+        #Parameters for evConversion
+        VMPec = [-234.2, -189.4, -323.1, -324.2 ]
+        l = [0.0350,  0.0150,  0.0636,  0.1884,  0.0072]
+        r = [0.0   ,  self.r*0.64  ,  self.r*0.84  , self.r ,  VMPec[n] ]
+        m_over_2e = 5.69 / 2
+        evOffset = 0 #eV
+
+        new_e = e - evOffset
+
+        a = [  lt / np.sqrt(new_e - rt) for lt,rt in zip(l,r) ]
+        return np.sqrt(m_over_2e) * np.array(a).sum(axis=0)
+
+class calibratedEvConv:
     ''' Converts between tof and Ev for tunnel OPIS TOF spectrometers
         Usage:
         converter = opisEvConv()
         energy = converter[channel](tof)
+        Uses fixed calibration, retardation voltage is 170V
     '''
     def __init__(self):
         evMax = 350
