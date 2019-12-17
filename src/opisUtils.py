@@ -367,7 +367,9 @@ class geometricEvConv:
 
         evRange = np.arange(evMin, evMax, 1)
         tofVals  = [ self.ev2tof( n, evRange ) for n in range(4) ]
-        self.interpolators = [ interpolate.interp1d(tof, evRange, kind='linear') for tof in tofVals ]
+        self.interpolators = [ interpolate.interp1d(tof, evRange,
+                                                    kind='linear') \
+                               for tof in tofVals ]
 
     def __getitem__(self, channel):
         def foo(tof):
@@ -411,7 +413,8 @@ class calibratedEvConv:
         # Calculate correspoiding TOFS for interpolation
         tofVals  = [ self.ev2tof( channel, evRange ) for channel, evRange in enumerate(evRanges) ]
         # Initialize interpolators
-        self.interpolators = [ interpolate.interp1d(tof, evRange, kind='linear') \
+        self.interpolators = [ interpolate.interp1d(tof,
+                                                    evRange,kind='linear') \
                                for tof, evRange in zip(tofVals, evRanges) ]
 
     def __getitem__(self, channel):
