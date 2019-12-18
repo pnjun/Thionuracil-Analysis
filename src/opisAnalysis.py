@@ -18,11 +18,33 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
         'time' : { #'start' :datetime(2019,3,31,8,25,0).timestamp(),
                    #'stop'  :datetime(2019,3,31,8,25,10).timestamp(),
                    'start' : datetime(2019,4,1,2,51,0).timestamp(),
-                   'stop'  : datetime(2019,4,1,2,51,10).timestamp(),
+                   'stop'  : datetime(2019,4,1,2,51,2).timestamp(),
                  },
+        'plots':
+                 {
+                    'traceID' : 25,
+                    'diffs'      : False,
+                    'wlHist'     : False,
+                    'ampliHist'  : False,
+                    'integHist'  : False,
+                    'fwhmHist'   : False,
+                    'mask'       : False,
+                    'wlTrend'    : True,
+                    'ampliTrend' : True,
+                    'fwhmTrend'  : True,
+                    'integTrend' : False,
+                    'rawTraces'  : False,
+                    'fittedTr'   : True,
+                    'intAmpSc'   : True,
+                    'AmpFhwmSc'   : True,
+                    'integAreaSc' : True
+                 }
       }
 
 cfg = AttrDict(cfg)
+amplR = np.linspace(-60, -5, 16)
+enerR = np.linspace(-5, 5, 32)
+fwhmR = np.linspace(1,3,7)
 
 
 h5data  = pd.HDFStore(cfg.data.path + cfg.data.filename, mode = 'r')
@@ -41,66 +63,100 @@ traces   = [ tofs[n] for n in range(4) ]
 #evConv = ou.geometricEvConv(170)
 evConv = ou.calibratedEvConv()
 GUESSEV = pulses.undulatorEV.iloc[0]
-TRACEID = 40
-
-amplR = np.linspace(-60, -5, 16)
-enerR = np.linspace(GUESSEV-7, GUESSEV+7, 64)
+enerR += GUESSEV
 
 fitter = ou.evFitter(ou.GAS_ID_AR)
 fitter.loadTraces(traces, evConv, GUESSEV)
-diffs = fitter.getOffsets(getdiffs=True)
-fit = fitter.leastSquare(amplR, enerR)
+diffs = fitter.getOffsets(getDiffs=cfg.plots.diffs)
+fit   = fitter.leastSquare(amplR, enerR, fwhmR)
 
-'''plt.figure()
-plt.plot(diffs[0][TRACEID])
-plt.plot(diffs[1][TRACEID])
+if cfg.plots.diffs:
+    plt.figure()
+    plt.plot(diffs[0][cfg.plots.traceID])
+    plt.plot(diffs[1][cfg.plots.traceID])
 
-'''
 #invalidate low signal shots
 mask, rawm = fitter.ignoreMask(getRaw=True)
 fitm = fit.copy()
 fitm[mask] = np.NaN
-print(f'Trace integrals: {rawm[TRACEID]}')
+print(f'Trace integrals: {rawm[cfg.plots.traceID]}')
+print(f'Trace fit results: {fit[cfg.plots.traceID]}')
 
-fit = fit.reshape((fit.shape[0]//49,49,2))
-fitm = fitm.reshape((fitm.shape[0]//49,49,2))
+
+if cfg.plots.intAmpSc:
+    plt.figure('intAmpSc')
+    integ = rawm.sum(axis=1)
+    plt.plot(integ, -fit[:,1], 'o')
+    print(f'Integral-Amplitude Pearson: {np.corrcoef(integ, -fit[:,1])[0,1]}')
+
+if cfg.plots.AmpFhwmSc:
+    plt.figure('AmpFhwmSc')
+    plt.plot(fit[:,2], -fit[:,1], 'o')
+    print(f'Amplitude-FWHM Pearson: {np.corrcoef(fit[:,2], -fit[:,1])[0,1]}')
+
+if cfg.plots.integAreaSc:
+    plt.figure('integAreaSc')
+    integ = rawm.sum(axis=1)
+    area  = fit[:,2] * -fit[:,1]
+    plt.plot(integ, area, 'o')
+    print(f'Integral-Area Pearson: {np.corrcoef(integ, area)[0,1]}')
+
+fit = fit.reshape((fit.shape[0]//49,49,3))
+fitm = fitm.reshape((fitm.shape[0]//49,49,3))
 rawm = rawm.reshape((rawm.shape[0]//49,49,4))
 
-'''
-plt.figure('WL histogram', figsize=(7, 5))
-for i in range(6):
-    idx = i*9
-    plt.subplot(2,3,i+1, title = f'shot {idx}')
-    plt.hist(fit[:,idx,1])
+if cfg.plots.wlHist:
+    plt.figure('WL histogram', figsize=(7, 5))
+    for i in range(6):
+        idx = i*9
+        plt.subplot(2,3,i+1, title = f'shot {idx}')
+        plt.hist(fit[:,idx,0])
 
-plt.figure('AMPLI histogram', figsize=(7, 5))
-for i in range(6):
-    idx = i*9
-    plt.subplot(2,3,i+1, title = f'shot {idx}')
-    plt.hist(-fit[:,idx,0])
+if cfg.plots.ampliHist:
+    plt.figure('AMPLI histogram', figsize=(7, 5))
+    for i in range(6):
+        idx = i*9
+        plt.subplot(2,3,i+1, title = f'shot {idx}')
+        plt.hist(-fit[:,idx,1])
 
-plt.figure('INTEG histogram', figsize=(10, 7))
-for i in range(6):
-    idx = i*9
-    plt.subplot(2,3,i+1, title = f'shot {idx}')
-    plt.hist(rawm[:,idx])
-'''
+if cfg.plots.fwhmHist:
+    plt.figure('FHWM histogram', figsize=(7, 5))
+    for i in range(6):
+        idx = i*9
+        plt.subplot(2,3,i+1, title = f'shot {idx}')
+        plt.hist(fit[:,idx,2])
+
+if cfg.plots.integHist:
+    plt.figure('INTEG histogram', figsize=(10, 7))
+    for i in range(6):
+        idx = i*9
+        plt.subplot(2,3,i+1, title = f'shot {idx}')
+        plt.hist(rawm[:,idx])
 
 fit = np.nanmean( fit, axis=0 )
 fitm = np.nanmean( fitm , axis=0 )
 
-plt.figure('mask')
-plt.plot(np.mean( mask.reshape((mask.shape[0]//49,49)), axis=0))
-plt.figure('wavelenght')
-plt.plot(fit[:,1])
-plt.plot(fitm[:,1])
-plt.figure('AMPLI')
-plt.plot(-fit[:,0])
-plt.plot(-fitm[:,0])
+if cfg.plots.mask:
+    plt.figure('mask')
+    plt.plot(np.mean( mask.reshape((mask.shape[0]//49,49)), axis=0))
+if cfg.plots.wlTrend:
+    plt.figure('wavelenght')
+    plt.plot(fit[:,0])
+    plt.plot(fitm[:,0])
+if cfg.plots.ampliTrend:
+    plt.figure('AMPLI')
+    plt.plot(-fit[:,1])
+    plt.plot(-fitm[:,1])
+if cfg.plots.fwhmTrend:
+    plt.figure('FWHM')
+    plt.plot(fit[:,2])
+    plt.plot(fitm[:,2])
 
+if cfg.plots.rawTraces:
+    fitter.plotTraces(cfg.plots.traceID,show=False)
 
-fitter.plotTraces(TRACEID,show=False)
-fitter.plotFitted(TRACEID,show=False)
+if cfg.plots.fittedTr:
+    fitter.plotFitted(cfg.plots.traceID,show=False)
 
 plt.show()
 h5data.close()

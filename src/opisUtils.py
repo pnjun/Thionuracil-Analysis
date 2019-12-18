@@ -13,6 +13,7 @@ import cupy as cp
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from scipy import interpolate
+from time import time
 
 GAS_ID_AR = 0
 
@@ -30,8 +31,8 @@ class evFitter:
             self.evCuts = [3, 33]
 
             #How much samples to use at both ends of spectrum to allow for
-            #offset fitting (should be a multiple of 32)
-            self.padding = 32
+            #offset fitting (should be a multiple of 16)
+            self.padding = 16
 
         else:
             raise Exception("Gas id not valid")
@@ -54,7 +55,7 @@ class evFitter:
 
         if s < self.padding or e > data[0].shape[1] - self.padding:
             raise Exception(f"Not enough data in slice or padding too long. s:e = {s}:{e} pad:{self.padding}")
-        self.ROIBounds = slice(s-self.padding,e+self.padding)
+        self.ROIBounds = slice(s-2*self.padding,e+2*self.padding)
 
         # Will be filled with of energyvals and tofdata
         # Energies are calculated twice: once for normal tof samples
@@ -82,7 +83,7 @@ class evFitter:
         self.shotsNum = self.traces.shape[0]
         self.traceLen = self.traces.shape[2]
 
-    def getOffsets(self, oRange=None, getdiffs=False):
+    def getOffsets(self, oRange=None, getDiffs=False):
         ''' Scans the traces finding the optimal offsets (i.e. offset
             for which the difference is minimum) between tofs 0 and 2
             and 1 and 3. Orange must be lower than'''
@@ -90,8 +91,8 @@ class evFitter:
         if not hasattr(self, 'traces'):
             raise Exception("No peak data loaded. Use load first")
         if (oRange == None):
-            oRange = self.padding
-        if oRange > self.padding:
+            oRange = 2*self.padding
+        if oRange > 2*self.padding:
             raise Exception("oRange must be less than padding")
         if (oRange % 32 != 0):
             warnings.warn("oRange should be a multiple of 32 for full occupancy")
@@ -114,22 +115,22 @@ class evFitter:
                 res += abs(tr1[cuda.blockIdx.x,i] - tr2[cuda.blockIdx.x,i+off])
             diffsOut[cuda.blockIdx.x, cuda.threadIdx.x] = res
 
-        if getdiffs: ret = []
+        if getDiffs: ret = []
         diffs = cp.zeros( (self.shotsNum, oRange) , dtype=cp.float32)
 
         getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,0],
                                                self.traces[:,2],
                                                diffs)
         self.xOffsets = diffs.argmin(axis=1) - oRange//2
-        if getdiffs: ret.append(diffs.get())
+        if getDiffs: ret.append(diffs.get())
 
         getOffsetsDiff[self.shotsNum, oRange]( self.traces[:,1],
                                                self.traces[:,3],
                                                diffs)
         self.yOffsets = diffs.argmin(axis=1) - oRange//2
-        if getdiffs: ret.append(diffs.get())
+        if getDiffs: ret.append(diffs.get())
 
-        if getdiffs:
+        if getDiffs:
             return ret
 
     @staticmethod
@@ -137,13 +138,13 @@ class evFitter:
             ''' Gaussian fitting function (helper)'''
             return np.exp( - 4*np.log(2.)*(x-center)**2/fwhm**2)
 
-    def spectrumFit(self, x):
+    def spectrumFit(self, x, fwhm):
         ret = 0.
         for p in self.peaksData:
-            ret += p[1] * self.gauss(x, p[0], self.FWHM)
+            ret += p[1] * self.gauss(x, p[0], fwhm)
         return ret
 
-    def leastSquare(self, ampliRange, enRange):
+    def leastSquare(self, ampliRange, enRange, fwhmRange):
         if not hasattr(self, 'xOffsets'):
             raise Exception("No offset data loaded. Use getOffsets first")
 
@@ -161,11 +162,11 @@ class evFitter:
 
         padding = self.padding
         traceLen = self.traceLen
-        FWHM = self.FWHM
+
         @cuda.jit()
         def getResiduals(ener, traces,
                          xOffs, yOffs, peaks,
-                         ampliRange, enRange,
+                         ampliRange, enRange, fwhmRange,
                          residualsOut):
             ''' Calculate residuals for fitting. Each block takes care of a
             shot. Each thread in a block takes care of a point in parameter
@@ -183,6 +184,7 @@ class evFitter:
             # Params value of the current thread
             ampli = ampliRange[cuda.threadIdx.x]
             photonEn = enRange[cuda.threadIdx.y]
+            fwhm  = fwhmRange[cuda.blockIdx.y]
 
             res = 0.
             for i in range(padding, traceLen-padding):
@@ -197,11 +199,11 @@ class evFitter:
                 o2 = o1 if not par else o1 - 1
 
                 res += ( ampli * spectrumFit( photonEn-ener[0 ,par, i + o1 ],
-                                              peaks, FWHM)
+                                              peaks, fwhm)
                          - traces[cuda.blockIdx.x, 0, i] )**2
 
                 res += ( ampli * spectrumFit( photonEn-ener[2 ,par, i + o2 ],
-                                              peaks, FWHM)
+                                              peaks, fwhm)
                          - traces[cuda.blockIdx.x, 2, i + off] )**2
 
                 # TOFS 1 and 3
@@ -212,54 +214,60 @@ class evFitter:
                 o2 = o1 if not par else o1 - 1
 
                 res += ( ampli * spectrumFit( photonEn-ener[1 ,par, i + o1 ],
-                                              peaks, FWHM)
+                                              peaks, fwhm)
                          - traces[cuda.blockIdx.x, 1, i] )**2
                 res += ( ampli * spectrumFit( photonEn-ener[3 ,par, i + o2 ],
-                                              peaks, FWHM)
+                                              peaks, fwhm)
                          - traces[cuda.blockIdx.x, 3, i + off] )**2
 
-            residualsOut[cuda.blockIdx.x,
-                         cuda.threadIdx.x,
-                         cuda.threadIdx.y] = res
+            residualsOut[cuda.blockIdx.x,        #shotnum
+                         cuda.threadIdx.y,       #energy
+                         cuda.threadIdx.x,       #amplitude
+                         cuda.blockIdx.y] = res  #fwhm
 
-        amplinum = ampliRange.shape[0]
+
+        ampliNum = ampliRange.shape[0]
         enNum = enRange.shape[0]
-        if (amplinum*enNum % 32) != 0:
+        fwhmNum = fwhmRange.shape[0]
+
+        if (ampliNum*enNum % 32) != 0:
                raise Exception ("len(ampliRange) * len(enRange) must be a multiple of 32")
 
+
         #Allocate space for output array on GPU
-        residuals = cp.zeros( (self.shotsNum, amplinum, enNum ),
+        residuals = cp.zeros( (self.shotsNum, enNum, ampliNum, fwhmNum ),
                                dtype=cp.float32)
 
 
         #Allocate space for amplitudes and offset arrays
         amplies = cp.array(ampliRange, dtype=cp.float32)
         energies = cp.array(enRange, dtype=cp.float32)
+        fwhmes = cp.array(fwhmRange, dtype=cp.float32)
         peaks = cp.array(self.peaksData, dtype=cp.float32)
 
-        gridDim = self.shotsNum
-        blockDim =  amplinum, enNum
+        gridDim = self.shotsNum, fwhmNum
+        blockDim =  ampliNum, enNum
+
+        print(f'problem size {residuals.shape}')
+        t=time()
         getResiduals [ gridDim , blockDim ] (self.energies, self.traces,
                                              self.xOffsets, self.yOffsets,
-                                             peaks, amplies, energies,
+                                             peaks, amplies, energies, fwhmes,
                                              residuals)
-
+        cuda.synchronize()
+        print(f'time to fit {time() - t}\n')
         #print(cp.get_default_memory_pool().used_bytes())
-        del amplies
-        del energies
-        del peaks
 
-        resShape = residuals.shape
         #find indexes of minimum residuals for every shot
+        resShape = residuals.shape
         residuals = residuals.reshape(residuals.shape[0], -1)
-        residulas_idx = cp.unravel_index( residuals.argmin(axis=1),
-                                          resShape[1:] )
+        residulas_idx = cp.unravel_index( residuals.argmin(axis=1), resShape[1:] )
 
         #Extract the parameter values at the indexes found in previous step
-        self.fitResults = np.array( [ ampliRange[ residulas_idx[0].get() ],
-                                      enRange   [ residulas_idx[1].get() ] ] ).T
-        del residuals
-        del residulas_idx
+        self.fitResults = np.array( [ enRange    [ residulas_idx[0].get() ],
+                                      ampliRange [ residulas_idx[1].get() ],
+                                      fwhmRange  [ residulas_idx[2].get() ] ] ).T
+
         return self.fitResults
 
     def ignoreMask(self, threshhold = None, getRaw=False):
@@ -267,7 +275,7 @@ class evFitter:
         ans a shot should be ignored'''
         if threshhold is None: threshhold = self.ignoreThreshold
 
-        integ = cp.linalg.norm(self.traces, axis=2)
+        integ = cp.linalg.norm(self.traces[:,:,self.padding:-self.padding], axis=2)
         mask  = cp.any( integ < threshhold, axis=1 )
 
         if getRaw:
@@ -281,9 +289,8 @@ class evFitter:
 
         plt.figure()
         tofs = self.traces[traceIdx]
-        fitAmpli, fitEn = self.fitResults[traceIdx]
+        fitEn, fitAmpli, fitFWHM  = self.fitResults[traceIdx]
         #fitAmpli, fitEn = -60, 222
-        print(fitAmpli, fitEn)
         waterfall = 50
 
         #Tofs 0 and 2
@@ -301,7 +308,7 @@ class evFitter:
 
         plt.plot(t0En, tofs[0, self.padding : -self.padding].get())
         plt.plot(t2En, tofs[2, trSl ].get() )
-        plt.plot(t0En, fitAmpli * self.spectrumFit(fitEn-t0En) )
+        plt.plot(t0En, fitAmpli * self.spectrumFit(fitEn-t0En, fitFWHM) )
 
         #Tofs 1 and 3
         off = self.yOffsets.get()[traceIdx]
@@ -318,7 +325,7 @@ class evFitter:
 
         plt.plot(t1En, tofs[1, self.padding : -self.padding].get() + waterfall)
         plt.plot(t3En, tofs[3, trSl ].get() + waterfall)
-        plt.plot(t1En, fitAmpli * self.spectrumFit(fitEn-t1En) + waterfall)
+        plt.plot(t1En, fitAmpli * self.spectrumFit(fitEn-t1En, fitFWHM) + waterfall)
 
         if show:
             plt.show()
