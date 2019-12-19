@@ -32,7 +32,7 @@ class evFitter:
 
             #How much samples to use at both ends of spectrum to allow for
             #offset fitting (should be a multiple of 16)
-            self.padding = 16
+            self.padding = 32
 
         else:
             raise Exception("Gas id not valid")
@@ -144,7 +144,7 @@ class evFitter:
             ret += p[1] * self.gauss(x, p[0], fwhm)
         return ret
 
-    def leastSquare(self, ampliRange, enRange, fwhmRange):
+    def leastSquare(self, ampliRange, enRange):
         if not hasattr(self, 'xOffsets'):
             raise Exception("No offset data loaded. Use getOffsets first")
 
@@ -163,10 +163,16 @@ class evFitter:
         padding = self.padding
         traceLen = self.traceLen
 
+        # TODO: **** MODIFY SO THAT FHWM AND AMPLI ARE FITTED
+        # TOGHETER AS A FUNCTION OF TRACE INTEGRAL (USE CORRELATIONS)
+        # NEED TO WRITE THE CORRELATION FUNCTION INSIDE getResiduals,
+        # AND THEN TO MODIFY THE OUTPUT OF leastSquare TO TAKE THAT
+        # INTO ACCOUNT
+
         @cuda.jit()
-        def getResiduals(ener, traces,
+        def getResiduals(ener, traces, integs,
                          xOffs, yOffs, peaks,
-                         ampliRange, enRange, fwhmRange,
+                         ampliRange, enRange,
                          residualsOut):
             ''' Calculate residuals for fitting. Each block takes care of a
             shot. Each thread in a block takes care of a point in parameter
@@ -184,7 +190,6 @@ class evFitter:
             # Params value of the current thread
             ampli = ampliRange[cuda.threadIdx.x]
             photonEn = enRange[cuda.threadIdx.y]
-            fwhm  = fwhmRange[cuda.blockIdx.y]
 
             res = 0.
             for i in range(padding, traceLen-padding):
@@ -220,32 +225,28 @@ class evFitter:
                                               peaks, fwhm)
                          - traces[cuda.blockIdx.x, 3, i + off] )**2
 
-            residualsOut[cuda.blockIdx.x,        #shotnum
-                         cuda.threadIdx.y,       #energy
-                         cuda.threadIdx.x,       #amplitude
-                         cuda.blockIdx.y] = res  #fwhm
+            residualsOut[cuda.blockIdx.x,          #shotnum
+                         cuda.threadIdx.y,         #energy
+                         cuda.threadIdx.x ] = res  #amplitude
 
 
         ampliNum = ampliRange.shape[0]
         enNum = enRange.shape[0]
-        fwhmNum = fwhmRange.shape[0]
 
         if (ampliNum*enNum % 32) != 0:
                raise Exception ("len(ampliRange) * len(enRange) must be a multiple of 32")
 
-
         #Allocate space for output array on GPU
-        residuals = cp.zeros( (self.shotsNum, enNum, ampliNum, fwhmNum ),
+        residuals = cp.zeros( (self.shotsNum, enNum, ampliNum ),
                                dtype=cp.float32)
 
 
         #Allocate space for amplitudes and offset arrays
         amplies = cp.array(ampliRange, dtype=cp.float32)
         energies = cp.array(enRange, dtype=cp.float32)
-        fwhmes = cp.array(fwhmRange, dtype=cp.float32)
         peaks = cp.array(self.peaksData, dtype=cp.float32)
 
-        gridDim = self.shotsNum, fwhmNum
+        gridDim = self.shotsNum
         blockDim =  ampliNum, enNum
 
         print(f'problem size {residuals.shape}')
@@ -358,6 +359,131 @@ class evFitter:
 
         if show:
             plt.show()
+
+    def leastSquare3Params(self, ampliRange, enRange, fwhmRange):
+        if not hasattr(self, 'xOffsets'):
+            raise Exception("No offset data loaded. Use getOffsets first")
+
+        @cuda.jit("float32(float32,float32,float32)", device=True, inline=True)
+        def gauss(x, center, fwhm):
+                ''' Compiled gauss version for CUDA kernel '''
+                return math.exp( - 4*math.log(2.)*(x-center)**2/fwhm**2)
+
+        @cuda.jit("float32(float32,float32[:,:],float32)", device=True)
+        def spectrumFit(x, peaks, fwhm):
+            ret = 0.
+            for p in range(peaks.shape[0]):
+                ret += peaks[p,1] * gauss(x, peaks[p,0], fwhm)
+            return ret
+
+        padding = self.padding
+        traceLen = self.traceLen
+
+        @cuda.jit()
+        def getResiduals(ener, traces,
+                         xOffs, yOffs, peaks,
+                         ampliRange, enRange, fwhmRange,
+                         residualsOut):
+            ''' Calculate residuals for fitting. Each block takes care of a
+            shot. Each thread in a block takes care of a point in parameter
+            space (i.e. a couple of amplitude/energy values).
+            Inputs:
+            The energy index corresponing to the tof data (self.energies)
+            The tof data (self.traces)
+            The x and y offsets
+            Peaks parameters for fiter function
+            Range of amplidudes and energies to try
+            Output:
+            Residuals for all shots and all combinations of amplidude/energy
+            (3d shotnum * ampliLen * enLen array) '''
+
+            # Params value of the current thread
+            ampli = ampliRange[cuda.threadIdx.x]
+            photonEn = enRange[cuda.threadIdx.y]
+            fwhm  = fwhmRange[cuda.blockIdx.y]
+
+            res = 0.
+            for i in range(padding, traceLen-padding):
+                ##TODO: FIX o1 and o2 calculation to match the one in plotFitted
+
+                # TOFS 0 and 2
+                #for even(odd) offset we use normal(halfstep) energy scale
+                off = xOffs[cuda.blockIdx.x]
+                par = off % 2
+                o1 = off//2
+                #No branching, all threads have same offset
+                o2 = o1 if not par else o1 - 1
+
+                res += ( ampli * spectrumFit( photonEn-ener[0 ,par, i + o1 ],
+                                              peaks, fwhm)
+                         - traces[cuda.blockIdx.x, 0, i] )**2
+
+                res += ( ampli * spectrumFit( photonEn-ener[2 ,par, i + o2 ],
+                                              peaks, fwhm)
+                         - traces[cuda.blockIdx.x, 2, i + off] )**2
+
+                # TOFS 1 and 3
+                off = yOffs[cuda.blockIdx.x]
+                par = off % 2
+                o1 = off//2
+                #No branching, all threads have same offset
+                o2 = o1 if not par else o1 - 1
+
+                res += ( ampli * spectrumFit( photonEn-ener[1 ,par, i + o1 ],
+                                              peaks, fwhm)
+                         - traces[cuda.blockIdx.x, 1, i] )**2
+                res += ( ampli * spectrumFit( photonEn-ener[3 ,par, i + o2 ],
+                                              peaks, fwhm)
+                         - traces[cuda.blockIdx.x, 3, i + off] )**2
+
+            residualsOut[cuda.blockIdx.x,        #shotnum
+                         cuda.threadIdx.y,       #energy
+                         cuda.threadIdx.x,       #amplitude
+                         cuda.blockIdx.y] = res  #fwhm
+
+
+        ampliNum = ampliRange.shape[0]
+        enNum = enRange.shape[0]
+        fwhmNum = fwhmRange.shape[0]
+
+        if (ampliNum*enNum % 32) != 0:
+               raise Exception ("len(ampliRange) * len(enRange) must be a multiple of 32")
+
+        #Allocate space for output array on GPU
+        residuals = cp.zeros( (self.shotsNum, enNum, ampliNum, fwhmNum ),
+                               dtype=cp.float32)
+
+
+        #Allocate space for amplitudes and offset arrays
+        amplies = cp.array(ampliRange, dtype=cp.float32)
+        energies = cp.array(enRange, dtype=cp.float32)
+        fwhmes = cp.array(fwhmRange, dtype=cp.float32)
+        peaks = cp.array(self.peaksData, dtype=cp.float32)
+
+        gridDim = self.shotsNum, fwhmNum
+        blockDim =  ampliNum, enNum
+
+        print(f'problem size {residuals.shape}')
+        t=time()
+        getResiduals [ gridDim , blockDim ] (self.energies, self.traces,
+                                             self.xOffsets, self.yOffsets,
+                                             peaks, amplies, energies, fwhmes,
+                                             residuals)
+        cuda.synchronize()
+        print(f'time to fit {time() - t}\n')
+        #print(cp.get_default_memory_pool().used_bytes())
+
+        #find indexes of minimum residuals for every shot
+        resShape = residuals.shape
+        residuals = residuals.reshape(residuals.shape[0], -1)
+        residulas_idx = cp.unravel_index( residuals.argmin(axis=1), resShape[1:] )
+
+        #Extract the parameter values at the indexes found in previous step
+        self.fitResults = np.array( [ enRange    [ residulas_idx[0].get() ],
+                                      ampliRange [ residulas_idx[1].get() ],
+                                      fwhmRange  [ residulas_idx[2].get() ] ] ).T
+
+        return self.fitResults
 
 class geometricEvConv:
     ''' Converts between tof and Ev for main chamber TOF spectrometer

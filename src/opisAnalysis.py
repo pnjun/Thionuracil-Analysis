@@ -17,34 +17,34 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
                  },
         'time' : { #'start' :datetime(2019,3,31,8,25,0).timestamp(),
                    #'stop'  :datetime(2019,3,31,8,25,10).timestamp(),
-                   'start' : datetime(2019,4,1,2,51,0).timestamp(),
-                   'stop'  : datetime(2019,4,1,2,51,2).timestamp(),
+                   'start' : datetime(2019,4,1,3,10,0).timestamp(),
+                   'stop'  : datetime(2019,4,1,3,10,20).timestamp(),
                  },
         'plots':
                  {
-                    'traceID' : 25,
-                    'diffs'      : False,
+                    'traceID' : 40,
+                    'diffs'      : True,
                     'wlHist'     : False,
                     'ampliHist'  : False,
                     'integHist'  : False,
                     'fwhmHist'   : False,
                     'mask'       : False,
-                    'wlTrend'    : True,
-                    'ampliTrend' : True,
-                    'fwhmTrend'  : True,
+                    'wlTrend'    : False,
+                    'ampliTrend' : False,
+                    'fwhmTrend'  : False,
                     'integTrend' : False,
                     'rawTraces'  : False,
                     'fittedTr'   : True,
-                    'intAmpSc'   : True,
-                    'AmpFhwmSc'   : True,
+                    'intAmpSc'   : False,
+                    'AmpFhwmSc'   : False,
                     'integAreaSc' : True
                  }
       }
 
 cfg = AttrDict(cfg)
-amplR = np.linspace(-60, -5, 16)
+amplR = np.linspace(-60, -5, 20)
 enerR = np.linspace(-5, 5, 32)
-fwhmR = np.linspace(1,3,7)
+fwhmR = np.linspace(1,3,32)
 
 
 h5data  = pd.HDFStore(cfg.data.path + cfg.data.filename, mode = 'r')
@@ -68,7 +68,7 @@ enerR += GUESSEV
 fitter = ou.evFitter(ou.GAS_ID_AR)
 fitter.loadTraces(traces, evConv, GUESSEV)
 diffs = fitter.getOffsets(getDiffs=cfg.plots.diffs)
-fit   = fitter.leastSquare(amplR, enerR, fwhmR)
+fit   = fitter.leastSquare3Params(amplR, enerR, fwhmR)
 
 if cfg.plots.diffs:
     plt.figure()
@@ -76,12 +76,14 @@ if cfg.plots.diffs:
     plt.plot(diffs[1][cfg.plots.traceID])
 
 #invalidate low signal shots
-mask, rawm = fitter.ignoreMask(getRaw=True)
+mask, rawm = fitter.ignoreMask(0,getRaw=True)
 fitm = fit.copy()
 fitm[mask] = np.NaN
 print(f'Trace integrals: {rawm[cfg.plots.traceID]}')
 print(f'Trace fit results: {fit[cfg.plots.traceID]}')
 
+def linFit(x, m, q):
+    return x*m + q
 
 if cfg.plots.intAmpSc:
     plt.figure('intAmpSc')
@@ -99,6 +101,9 @@ if cfg.plots.integAreaSc:
     integ = rawm.sum(axis=1)
     area  = fit[:,2] * -fit[:,1]
     plt.plot(integ, area, 'o')
+    popt, pconv = curve_fit(linFit, integ, area)
+    plt.plot(integ, linFit(integ, *popt))
+    print(f'Fit results {popt}')
     print(f'Integral-Area Pearson: {np.corrcoef(integ, area)[0,1]}')
 
 fit = fit.reshape((fit.shape[0]//49,49,3))

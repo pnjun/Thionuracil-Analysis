@@ -22,7 +22,8 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files': ['FLASH2_USER1-2019-03-31T0700.h5'] #['FLASH2_USER1-2019-04-01T0238.h5]
+                          'files': ['FLASH2_USER1-2019-03-31T1613.h5']
+                          #['FLASH2_USER1-2019-03-31T0700.h5'] #['FLASH2_USER1-2019-04-01T0238.h5]
                           #'FLASH2_USER1-2019-0?-[30][0123789]*.h5'
                           #['FLASH2_USER1-2019-03-31T0500.h5'] ,
                           # List of files to process. All files must have the same number of shots per macrobunch
@@ -30,7 +31,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
            'output'   : {
                           'folder' : '/media/Fast1/ThioUr/processed/',
                           # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.
-                          'fname'  :  'opistest2.h5' #second_block_opis.h5',
+                          'fname'  :  'opistest3.h5' #second_block_opis.h5',
                         },
            'hdf'      : { 'opisTr0'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH00',
                           'opisTr1'    : '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/Raw data/CH01',
