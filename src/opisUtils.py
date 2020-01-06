@@ -80,6 +80,10 @@ class evFitter:
         #Shape: (4, 2, samples). 4 spectromenters, 2 for integer/halfinteger steps
         self.energies=cp.array(np.stack(self.energies,axis=0),dtype=cp.float32)
 
+        #Integral of ROI
+        self.integs = cp.linalg.norm(self.traces[:,:,self.padding:-self.padding],
+                                    axis=2)
+
         self.shotsNum = self.traces.shape[0]
         self.traceLen = self.traces.shape[2]
 
@@ -148,17 +152,28 @@ class evFitter:
         if not hasattr(self, 'xOffsets'):
             raise Exception("No offset data loaded. Use getOffsets first")
 
+        #Gaussian fitting function
         @cuda.jit("float32(float32,float32,float32)", device=True, inline=True)
         def gauss(x, center, fwhm):
                 ''' Compiled gauss version for CUDA kernel '''
                 return math.exp( - 4*math.log(2.)*(x-center)**2/fwhm**2)
 
+        #Generates a fit spectrum by linear combination of gaussians
         @cuda.jit("float32(float32,float32[:,:],float32)", device=True)
         def spectrumFit(x, peaks, fwhm):
             ret = 0.
             for p in range(peaks.shape[0]):
                 ret += peaks[p,1] * gauss(x, peaks[p,0], fwhm)
             return ret
+
+        #Returns area of fit from trace integral (there is a 0.92 correlation)
+        @cuda.jit("float32(int32)", device=True, inline=True)
+        def integ2area(integ):
+            return (integ - 20.18)*0.1549
+
+        #Same as above but run locally
+        def integ2area2(integ):
+            return (integ - 20.18)*0.1549
 
         padding = self.padding
         traceLen = self.traceLen
@@ -189,7 +204,12 @@ class evFitter:
 
             # Params value of the current thread
             ampli = ampliRange[cuda.threadIdx.x]
-            photonEn = enRange[cuda.threadIdx.y]
+            photonEn = enRange[cuda.blockIdx.y]
+
+            #Assume fhwm from integral of trace (use leastSquare3Params to see
+            #0.91 correlation between trace integral and fitted area)
+            area = integ2area(integs[cuda.blockIdx.x])
+            fwhm = area / ampli
 
             res = 0.
             for i in range(padding, traceLen-padding):
@@ -226,7 +246,7 @@ class evFitter:
                          - traces[cuda.blockIdx.x, 3, i + off] )**2
 
             residualsOut[cuda.blockIdx.x,          #shotnum
-                         cuda.threadIdx.y,         #energy
+                         cuda.blockIdx.y,          #energy
                          cuda.threadIdx.x ] = res  #amplitude
 
 
@@ -244,16 +264,17 @@ class evFitter:
         #Allocate space for amplitudes and offset arrays
         amplies = cp.array(ampliRange, dtype=cp.float32)
         energies = cp.array(enRange, dtype=cp.float32)
+        integs = self.integs.sum(axis=1)
         peaks = cp.array(self.peaksData, dtype=cp.float32)
 
-        gridDim = self.shotsNum
-        blockDim =  ampliNum, enNum
+        gridDim = self.shotsNum, enNum
+        blockDim =  ampliNum
 
         print(f'problem size {residuals.shape}')
         t=time()
-        getResiduals [ gridDim , blockDim ] (self.energies, self.traces,
-                                             self.xOffsets, self.yOffsets,
-                                             peaks, amplies, energies, fwhmes,
+        getResiduals [ gridDim , blockDim ] (self.energies, self.traces, integs,
+                                             self.xOffsets, self.yOffsets, peaks,
+                                             amplies, energies,
                                              residuals)
         cuda.synchronize()
         print(f'time to fit {time() - t}\n')
@@ -264,10 +285,12 @@ class evFitter:
         residuals = residuals.reshape(residuals.shape[0], -1)
         residulas_idx = cp.unravel_index( residuals.argmin(axis=1), resShape[1:] )
 
+        fittedEn    = energies [ residulas_idx[0] ]
+        fittedAmpli = amplies  [ residulas_idx[1] ]
+        fwhm = integ2area2(integs) / fittedAmpli
+
         #Extract the parameter values at the indexes found in previous step
-        self.fitResults = np.array( [ enRange    [ residulas_idx[0].get() ],
-                                      ampliRange [ residulas_idx[1].get() ],
-                                      fwhmRange  [ residulas_idx[2].get() ] ] ).T
+        self.fitResults = np.array([fittedEn.get(), fittedAmpli.get(), fwhm.get()]).T
 
         return self.fitResults
 
@@ -276,11 +299,9 @@ class evFitter:
         ans a shot should be ignored'''
         if threshhold is None: threshhold = self.ignoreThreshold
 
-        integ = cp.linalg.norm(self.traces[:,:,self.padding:-self.padding], axis=2)
-        mask  = cp.any( integ < threshhold, axis=1 )
-
+        mask  = cp.any( self.integs < threshhold, axis=1 )
         if getRaw:
-            return mask.get(), integ.get()
+            return mask.get(), self.integs.get()
         else:
             return mask.get()
 
@@ -478,10 +499,12 @@ class evFitter:
         residuals = residuals.reshape(residuals.shape[0], -1)
         residulas_idx = cp.unravel_index( residuals.argmin(axis=1), resShape[1:] )
 
+        fittedEn    = energies [ residulas_idx[0] ]
+        fittedAmpli = amplies  [ residulas_idx[1] ]
+        fittedFwhm  = fwhmes   [ residulas_idx[2] ]
+
         #Extract the parameter values at the indexes found in previous step
-        self.fitResults = np.array( [ enRange    [ residulas_idx[0].get() ],
-                                      ampliRange [ residulas_idx[1].get() ],
-                                      fwhmRange  [ residulas_idx[2].get() ] ] ).T
+        self.fitResults = np.array([fittedEn.get(), fittedAmpli.get(), fittedFwhm.get()]).T
 
         return self.fitResults
 
