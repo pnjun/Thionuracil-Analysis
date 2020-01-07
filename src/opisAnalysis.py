@@ -8,6 +8,7 @@ from scipy.optimize import curve_fit
 
 import sys
 import opisUtils as ou
+from utils import h5load
 
 import pickle
 
@@ -51,13 +52,8 @@ h5data  = pd.HDFStore(cfg.data.path + cfg.data.filename, mode = 'r')
 index   = pd.HDFStore(cfg.data.path + cfg.data.indexf, mode = 'r')
 
 pulses = index.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
-pulsesLims = (pulses.index[0], pulses.index[-1])
 
-tofs =   [ h5data.select(f'tof{n}',
-               where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
-                      'pulseId in pulses.index'] )
-           for n in range(4) ]
-
+tofs =   [ h5load(f'tof{n}', h5data, pulses) for n in range(4) ]
 traces   = [ tofs[n] for n in range(4) ]
 
 #evConv = ou.geometricEvConv(170)

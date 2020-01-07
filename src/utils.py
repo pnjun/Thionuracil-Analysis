@@ -18,6 +18,22 @@ def filterPulses(pulses, filters):
     queryExpr = " and ".join(queryList)
     return pulses.query(queryExpr)
 
+def h5load(dfname, h5store, pulses, chunk=None):
+    '''
+        Loads data from dataframe 'dfname' from h5store,
+        only where pulseId matches the Id of pulses.
+        If chuck is passed, an iterator is returned with
+        the chunklen specified
+    '''
+    pulsesLims = (pulses.index[0], pulses.index[-1])
+    iter = True if chunk is not None else False
+    return h5store.select(dfname,
+           where= ['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
+                   'pulseId in pulses.index'],
+           iterator=iter,
+           chunksize= chunk )
+
+
 def shotsDelay(delaysData, bamData=None, shotsNum = None):
     ''' Takes an array of delays and an array of BAM values and combines them, returing an array with the same shape of bamData offset with the delay value.
     If bamData is None no bam correction is performed, an array of delaysData.shape[0] * shotsNum size is created and returned using just delayData'''
