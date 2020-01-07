@@ -42,7 +42,6 @@ tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, mode = 'r')
 
 #Get all pulses within time limits
 pulses = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
-pulsesLims = (pulses.index[0], pulses.index[-1])
 #Filter only pulses with parameters in range
 pulses = utils.filterPulses(pulses, cfg.filters)
 
@@ -50,9 +49,8 @@ pulses = utils.filterPulses(pulses, cfg.filters)
 if(not len(pulses)):
     raise Exception("No pulses satisfy filter condition")
 
-shotsData = tr.select('shotsData', where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
-                                          'pulseId in pulses.index'] )
-                                          
+shotsData = utils.h5load('shotsData', tr, pulses)
+
 #Remove pulses with no corresponing shots
 pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 
@@ -113,9 +111,7 @@ else:
         raise Exception("binning mode not valid")
 
 #Read in TOF data and calulate difference, in chunks
-shotsTof  = tr.select('shotsTof',  where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
-                                          'pulseId in pulses.index'],
-                                   iterator=True, chunksize=cfg.ioChunkSize)
+shotsTof  = utils.h5load('shotsTof', tr, pulses, chunk=cfg.ioChunkSize)
 
 #Create empty ouptut image image
 img = np.zeros( ( len(bins), 3009 ))
