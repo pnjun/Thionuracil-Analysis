@@ -15,21 +15,20 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'fisrt_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'testBAM+'
+                          'fname'    : 'test'
                         },
-           'time'     : { #'start' : datetime(2019,3,26,16,25,0).timestamp(),
-                          #'stop'  : datetime(2019,3,26,16,50,0).timestamp(),
-                          'start' : datetime(2019,3,26,20,45,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,20,59,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,16,56,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,17,30,0).timestamp(),
                         },
-           'filters'  : { 'opisEV'      : (265.,275.),
+           'filters'  : { 'opisEV'      : (270.,275.),
                           'retarder'    : (-81.,-79.),
-#                          'delay'       : (1170, 1180.0),
-                          'waveplate'   : (39.,41.)
+#                          'delay'       : (1170, 1185.0),
+                          'waveplate'   : (9.5,10.5)
                         },
-           'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
+           'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
+           'delayBin_mode'  : 'CUSTOM', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.01,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 1200,       # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 1200,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
@@ -82,7 +81,7 @@ else:
 
 if cfg.useBAM:
     shotsData.BAM = shotsData.BAM.fillna(0)
-    averageBamShift = shotsData.query("BAM != 0").BAM.mean()
+    averageBamShift = shotsData.query(cfg.sdfilter).BAM.mean()
     print(f"Correcting delays with BAM data. Average shift is {averageBamShift:.3f} ps")
     shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsData.BAM.to_numpy())
 else:
@@ -94,8 +93,8 @@ print(f"Loading {shotsData.shape[0]*2} shots")
 #chose binning dependent on delaybin_mode
 if cfg.delayBin_mode == 'CUSTOM': # insert your binning intervals here
     print(f"Setting up customized bins")
-    interval = pd.IntervalIndex.from_arrays(utils.CUSTOM_BINS_LEFT + averageBamShift,
-                                            utils.CUSTOM_BINS_RIGHT + averageBamShift)
+    interval = pd.IntervalIndex.from_arrays(utils.CUSTOM_BINS_LEFT - averageBamShift,
+                                            utils.CUSTOM_BINS_RIGHT - averageBamShift)
     bins = shotsData.groupby( pd.cut(shotsData.delay, interval) )
 
 else:
@@ -129,7 +128,7 @@ for counter, chunk in enumerate(shotsTof):
     shotsDiff = utils.getDiff(chunk, gmdData)
     for binId, bin in enumerate(bins):
         name, group = bin
-        group = group.query("GMD > 0.5 & BAM != 0") # GMD < 4.5 & uvPow > 320 & uvPow < 380 &
+        group = group.query(cfg.sdfilter)
         binTrace = shotsDiff.reindex(group.index).mean()
         if not binTrace.isnull().to_numpy().any():
             img[binId] += binTrace
@@ -138,13 +137,8 @@ for counter, chunk in enumerate(shotsTof):
 idx.close()
 tr.close()
 
-print("binCount [:,None]:", binCount[:,None])
 img /= binCount[:,None]
 if uvEven > uvOdd: img *= -1
-
-#plt.plot(binCount)
-#plt.show()
-
 
 #average all chunks, counter + 1 is the total number of chunks we loaded
 #print("binCount[:,None]:", binCount[:,None])
@@ -154,12 +148,23 @@ if uvEven > uvOdd: img *= -1
 
 #get axis labels
 delays = np.array( [name.mid for name, _ in bins] )
+#delays = np.array([bins["delay"].mean().values, bins["delay"].std().values])
+
+
 evConv = utils.mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
+# make dataframe and save data
 img = pd.DataFrame(data = img, columns=evs, index=delays).fillna(0)
-img.to_hdf(cfg.output.path + cfg.output.fname + ".csv", "data",mode="w", format="table")
+img.to_csv(cfg.output.path + cfg.output.fname + ".csv", mode="w")
 
+# save other parameters
+#gmd = np.array([bins["GMD"].mean().values, bins["GMD"].std().values])
+#uv = np.array([bins["uvPow"].mean().values, bins["uvPow"].std().values])
+#np.savetxt(cfg.output.path+cfg.output.fname+"_shotsData.csv",
+#           np.array([delays[0], delays[1], gmd[0], gmd[1], uv[0], uv[1]]).T,
+#           header="delay (ps); delayError (ps); gmd (µJ); gmdError (µJ), uv; uvError",
+#           delimiter="; ")
 
 #plot resulting image
 plt.figure()
@@ -175,7 +180,7 @@ print("\nDone")
 
 
 
-#plot liner graph of integral over photoline
+#plot line graph of integral over photoline
 plt.figure()
 #photoline = slice(820,877)
 #photoline = evs[np.abs(evs - 107).argmin() : np.abs(evs - 102.5).argmin()]
