@@ -25,8 +25,8 @@ class evFitter:
         #Parameters of a peak for fitting: energy and relative amplitude
         if gasID == GAS_ID_AR:
                         #      energy  ampli
-            self.peaksData = [ [ 15.8, 1.00 ],
-                               [ 29.3, 0.21 ]]
+            self.peaksData = [ [ 15.8, -1.00 ],
+                               [ 29.3, -0.21 ]]
             #where to cut the spectrum in eV
             self.evCuts = [3, 33]
 
@@ -148,7 +148,7 @@ class evFitter:
             ret += p[1] * self.gauss(x, p[0], fwhm)
         return ret
 
-    def leastSquare(self, ampliRange, enRange):
+    def leastSquare(self, ampliRange, enRange, verbose=False):
         if not hasattr(self, 'xOffsets'):
             raise Exception("No offset data loaded. Use getOffsets first")
 
@@ -178,12 +178,6 @@ class evFitter:
         padding = self.padding
         traceLen = self.traceLen
 
-        # TODO: **** MODIFY SO THAT FHWM AND AMPLI ARE FITTED
-        # TOGHETER AS A FUNCTION OF TRACE INTEGRAL (USE CORRELATIONS)
-        # NEED TO WRITE THE CORRELATION FUNCTION INSIDE getResiduals,
-        # AND THEN TO MODIFY THE OUTPUT OF leastSquare TO TAKE THAT
-        # INTO ACCOUNT
-
         @cuda.jit()
         def getResiduals(ener, traces, integs,
                          xOffs, yOffs, peaks,
@@ -203,8 +197,8 @@ class evFitter:
             (3d shotnum * ampliLen * enLen array) '''
 
             # Params value of the current thread
-            ampli = ampliRange[cuda.threadIdx.x]
-            photonEn = enRange[cuda.blockIdx.y]
+            ampli = ampliRange[cuda.blockIdx.y]
+            photonEn = enRange[cuda.threadIdx.x]
 
             #Assume fhwm from integral of trace (use leastSquare3Params to see
             #0.91 correlation between trace integral and fitted area)
@@ -246,15 +240,15 @@ class evFitter:
                          - traces[cuda.blockIdx.x, 3, i + off] )**2
 
             residualsOut[cuda.blockIdx.x,          #shotnum
-                         cuda.blockIdx.y,          #energy
-                         cuda.threadIdx.x ] = res  #amplitude
+                         cuda.threadIdx.x,          #energy
+                         cuda.blockIdx.y ] = res  #amplitude
 
 
         ampliNum = ampliRange.shape[0]
         enNum = enRange.shape[0]
 
-        if (ampliNum*enNum % 32) != 0:
-               raise Exception ("len(ampliRange) * len(enRange) must be a multiple of 32")
+        if (enNum % 32) != 0:
+               raise Exception ("len(ampliRange) must be a multiple of 32")
 
         #Allocate space for output array on GPU
         residuals = cp.zeros( (self.shotsNum, enNum, ampliNum ),
@@ -267,17 +261,17 @@ class evFitter:
         integs = self.integs.sum(axis=1)
         peaks = cp.array(self.peaksData, dtype=cp.float32)
 
-        gridDim = self.shotsNum, enNum
-        blockDim =  ampliNum
+        gridDim = self.shotsNum, ampliNum
+        blockDim = enNum
 
-        print(f'problem size {residuals.shape}')
+        if verbose: print(f'problem size {residuals.shape}')
         t=time()
         getResiduals [ gridDim , blockDim ] (self.energies, self.traces, integs,
                                              self.xOffsets, self.yOffsets, peaks,
                                              amplies, energies,
                                              residuals)
         cuda.synchronize()
-        print(f'time to fit {time() - t}\n')
+        if verbose: print(f'time to fit {time() - t}\n')
         #print(cp.get_default_memory_pool().used_bytes())
 
         #find indexes of minimum residuals for every shot
@@ -519,7 +513,7 @@ class geometricEvConv:
         self.r = retarder
 
         evMin = self.r + 1
-        evMax = self.r + 350
+        evMax = self.r + 400
 
         evRange = np.arange(evMin, evMax, 1)
         tofVals  = [ self.ev2tof( n, evRange ) for n in range(4) ]
@@ -555,7 +549,7 @@ class calibratedEvConv:
         Uses fixed calibration, retardation voltage is 170V
     '''
     def __init__(self):
-        evMax = 350
+        evMax = 400
 
         self.params = np.array(
                  [[ 1.87851827E+002, -1.71740614E+002, 1.68133279E+004, -1.23094641E+002, 1.85483300E+001 ],

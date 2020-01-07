@@ -18,7 +18,7 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
         'time' : { #'start' :datetime(2019,3,31,8,25,0).timestamp(),
                    #'stop'  :datetime(2019,3,31,8,25,10).timestamp(),
                    'start' : datetime(2019,4,1,3,10,0).timestamp(),
-                   'stop'  : datetime(2019,4,1,3,10,20).timestamp(),
+                   'stop'  : datetime(2019,4,1,3,10,2).timestamp(),
                  },
         'plots':
                  {
@@ -42,7 +42,7 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
       }
 
 cfg = AttrDict(cfg)
-amplR = np.linspace(-60, -5, 32)
+amplR = np.linspace(5, 60, 32)
 enerR = np.linspace(-5, 5, 32)
 #fwhmR = np.linspace(1,3,32)
 
