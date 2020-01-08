@@ -184,7 +184,6 @@ class mainTofEvConv:
                                       l2 / np.sqrt(new_e + self.r) +
                                       l3 / np.sqrt(new_e + 300) )
 
-
 class Slicer:
     ''' Splits a ADC trace into slices given a set of slicing parameters '''
     def __init__(self, sliceParams, removeBg = False):
