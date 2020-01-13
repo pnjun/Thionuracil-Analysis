@@ -24,7 +24,7 @@ PREFIX = '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/'
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files': ['FLASH2_USER1-2019-03-31T1613.h5']
+                          'files': ['FLASH2_USER1-2019-03-30T1900.h5']
                           #['FLASH2_USER1-2019-03-31T0700.h5'] #['FLASH2_USER1-2019-04-01T0238.h5]
                           #'FLASH2_USER1-2019-0?-[30][0123789]*.h5'
                           #['FLASH2_USER1-2019-03-31T0500.h5'] ,
@@ -32,8 +32,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                         },
            'output'   : {
                           'folder' : '/media/Fast1/ThioUr/processed/',
-                          # 'AUTO' for 'OPIS-<firstPulseId>-<lastPulseId.h5>'. Use only when data.files is a list of subsequent shots.
-                          'fname'  :  'opistest3.h5' #second_block_opis.h5',
+                          'fname'  :  'opisSliced2019-03-30T1900.h5',
                         },
            'hdf'      : { 'opisTr0'    : PREFIX + 'Raw data/CH00',
                           'opisTr1'    : PREFIX + 'Raw data/CH01',

@@ -12,18 +12,23 @@ import utils
 import pickle
 
 cfg = { 'data' : { 'path'     : '/media/Fast2/ThioUr/processed/',
-                   'filename' : 'tracesOpistest.h5',
+                   'filename' : 'trOpistest2019-03-30T2100.h5',
                    'indexf'   : 'index.h5'
                  },
-        'time' : { 'start' : datetime(2019,4,1,3,15,0).timestamp(),
-                   'stop'  : datetime(2019,4,1,3,16,20).timestamp(),
+        'time' : { 'start' : datetime(2019,3,30,22,0,20).timestamp(),
+                   'stop'  : datetime(2019,3,30,22,1,20).timestamp(),
                  },
+
+        'averageShots'  : False,
+        'ignoreMask'    : True,
+        'photoline'     : 171,
         'plots':
                  {
                     'tracePlot'     : None,
-                    'ampliGMDsc'    : False,
-                    'evPhotolinesc' : True,
-                    'traceMax'      : None
+                    'ampliGMDsc'    : True,
+                    'evPhotosc'     : False,
+                    'evPhotoShotbyShot' : True,
+                    'traceMax'      : 21
                  }
       }
 
@@ -41,49 +46,75 @@ shotsData = utils.h5load('shotsData', h5data, pulses)
 
 #take only umpumped shots
 #opisData = opisData.query('ampli > 35 and ampli < 60')
-opisData = opisData.query('shotNum % 2 == 0')
-opisData = opisData.dropna()
+#opisData = opisData.query('shotNum % 2 == 0')
+
+
+if cfg.ignoreMask:
+    opisData = opisData.query('ignoreMask == False')
 
 #Filter out shots for wich there is no opisFit data
 shotsTof  = shotsTof.query('index in @opisData.index')
 shotsData = shotsData.query('index in @opisData.index')
 
-#Average together by shot number
-opisData  = opisData.mean(level=1)
-shotsTof  = shotsTof.mean(level=1)
-shotsData = shotsData.mean(level=1)
+#shotsTof  = shotsTof.mean(level=1)
+#shotsData = shotsData.mean(level=1)
 
 evConv = utils.mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsTof.columns)
 
 if cfg.plots.ampliGMDsc:
-    plt.figure('ampliGMDsc')
-    plt.plot(opisData.ampli, shotsData.GMD, 'o')
-    print(f'GMD-Ampli Pearson: {np.corrcoef(opisData.ampli, shotsData.GMD)[0,1]}')
+    if cfg.averageShots:
+        ampli  = opisData.ampli.mean(level=1)
+        gmd    = shotsData.GMD.mean(level=1)
+    else:
+        ampli  = opisData.ampli
+        gmd    = shotsData.GMD
 
-if cfg.plots.evPhotolinesc:
-    photoline = slice(np.abs(evs - 65).argmin() , np.abs(evs - 45).argmin())
+    plt.figure('ampliGMDsc')
+    plt.plot(ampli, gmd, 'o')
+    print(f'GMD-Ampli Pearson: {np.corrcoef(ampli, gmd)[0,1]}')
+
+if cfg.plots.evPhotosc or cfg.plots.evPhotoShotbyShot:
+    opisEv = opisData.ev.mean()
+    photoStart = opisEv - cfg.photoline - 7
+    photoEnd   = opisEv - cfg.photoline + 7
+    photoline = slice(np.abs(evs - photoEnd).argmin() ,
+                      np.abs(evs - photoStart).argmin() )
     photoEn = []
-    for index, trace in shotsTof.iterrows():
+    for _, trace in shotsTof.iterrows():
         photoEn.append(evs[photoline][trace[photoline].values.argmin()])
 
     photoEn = pd.DataFrame(photoEn, columns=['ev'], index=opisData.index)
 
-    plt.figure('evPhotolinesc')
-    plt.plot(opisData.ev, photoEn.ev, 'o')
+    #Average together by shot number
+    if cfg.averageShots:
+        opisData  = opisData.mean(level=1)
+        photoEn   = photoEn.mean(level=1)
 
-    ''' for i in range(0,9):
-        id = i*4
-        opisData =  opisData.query('index == @id')
-        photoEn = photoEn.query('index == @id')
-        plt.subplot(f'33{i}')
+    plt.figure('evPhotolinesc')
+    if cfg.plots.evPhotosc:
+        plt.gca().set_aspect('equal')
+        plt.gca().set_xlim([opisEv-3,opisEv+3])
         plt.plot(opisData.ev, photoEn.ev, 'o')
-        print(f'ev-photoline Pear {i}: {np.corrcoef(opisData.ev, photoEn.ev)[0,1]}')'''
+        print(f'ev-photoline Pear: {np.corrcoef(opisData.ev, photoEn.ev)[0,1]}')
+    elif cfg.plots.evPhotoShotbyShot and not cfg.averageShots:
+        for i in range(0,9):
+            id = i*4
+            opis =  opisData.query('shotNum == @id').ev
+            photo = photoEn.query ('shotNum == @id').ev
+
+            plt.subplot(f'33{i}')
+            plt.gca().set_aspect('equal')
+            plt.gca().set_xlim([opisEv-3,opisEv+3])
+            plt.plot(opis, photo, 'o')
+            print(f'ev-photoline Pear{id}: {np.corrcoef(opis, photo)[0,1]}')
+    else:
+        print('invalid plot options')
 
     if cfg.plots.traceMax:
         plt.figure('traceMax')
         plt.plot(evs[photoline], shotsTof.iloc[cfg.plots.traceMax][photoline])
-        plt.axvline(x=photoEn[cfg.plots.traceMax])
+        plt.axvline(x=photoEn.iloc[cfg.plots.traceMax].to_numpy())
 
 if cfg.plots.tracePlot:
     plt.figure('tracePlot')

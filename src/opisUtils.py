@@ -28,7 +28,7 @@ class evFitter:
             self.peaksData = [ [ 15.8, -1.00 ],
                                [ 29.3, -0.21 ]]
             #where to cut the spectrum in eV
-            self.evCuts = [3, 33]
+            self.evCuts = [5, 33]
 
             #How much samples to use at both ends of spectrum to allow for
             #offset fitting (should be a multiple of 16)
@@ -53,9 +53,14 @@ class evFitter:
         s = np.abs( baseEn - (evGuess - self.evCuts[0] )).argmin()
         e = np.abs( baseEn - (evGuess - self.evCuts[1] )).argmin()
 
-        if s < self.padding or e > data[0].shape[1] - self.padding:
-            raise Exception(f"Not enough data in slice or padding too long. s:e = {s}:{e} pad:{self.padding}")
         self.ROIBounds = slice(s-2*self.padding,e+2*self.padding)
+        if self.ROIBounds.start < 0:
+            warnings.warn("Not enough data to cover ROI (high energy)")
+            self.ROIBounds = slice(0,self.ROIBounds.stop)
+
+        if self.ROIBounds.stop > data[0].shape[1]:
+            warnings.warn("Not enough data to cover ROI (low energy)")
+            self.ROIBounds = slice(self.ROIBounds.start,None)
 
         # Will be filled with of energyvals and tofdata
         # Energies are calculated twice: once for normal tof samples
