@@ -28,7 +28,7 @@ PREFIX = '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/'
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files': ['FLASH2_USER1-2019-03-30T2100.h5']
+                          'files': 'FLASH2_USER1-2019-0?-[30][0123789]*.h5'
                           #['FLASH2_USER1-2019-03-31T0700.h5'] #['FLASH2_USER1-2019-04-01T0238.h5]
                           #'FLASH2_USER1-2019-0?-[30][0123789]*.h5'
                           #['FLASH2_USER1-2019-03-31T0500.h5'] ,
@@ -36,9 +36,9 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                         },
            'output'   : {
                           'folder' : '/media/Fast2/ThioUr/processed/',
-                          'fname'  :  'trOpistest2019-03-30T2100.h5',
-                          'start' : datetime(2019,3,30,22,40,0).timestamp(),
-                          'stop'  : datetime(2019,3,30,22,50,0).timestamp(),
+                          'fname'  :  'second_block.h5',
+                          #'start' : datetime(2019,3,31,5,10,0).timestamp(),
+                          #'stop'  : datetime(2019,3,31,5,20,0).timestamp(),
                         },
            'hdf'      : { 'opisTr0'    : PREFIX + 'Raw data/CH00',
                           'opisTr1'    : PREFIX + 'Raw data/CH01',
@@ -54,27 +54,27 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                         },
            'slicing0' : { 'offset'   : 263,   #Offset of first slice in samples (time zero)
                           'period'   : 3500.290,  #Rep period of FEL in samples
-                          'window'   : 1500,  #Shot lenght in samples (cuts off low energy electrons)
+                          'window'   : 1700,  #Shot lenght in samples (cuts off low energy electrons)
                           'skipNum'  : 250,     #Skip fist samples of each slice (cuts off high energy electrons)
                           'dt'       : 0.00014,     #Time between samples [us]
                           'shotsNum' : 49,    #Number of shots per macrobunch
                         },
            'slicing1' : { 'offset' : 225, 'period' : 3500.302,
-                          'window' : 1500,'skipNum' : 250,
+                          'window' : 1700,'skipNum' : 250,
                           'dt' : 0.00014, 'shotsNum' : 49,
                         },
            'slicing2' : { 'offset'   : 220,'period'   : 3500.300,
-                          'window'   : 1500, 'skipNum'  : 250,
+                          'window'   : 1700, 'skipNum'  : 250,
                           'dt'       : 0.00014, 'shotsNum' : 49,
                         },
            'slicing3' : { 'offset'   : 219, 'period'   : 3500.297,
-                          'window'   : 1500, 'skipNum'  : 250,
+                          'window'   : 1700, 'skipNum'  : 250,
                           'dt'       : 0.00014, 'shotsNum' : 49,
                         },
-           'chunkSize': 200, #How many macrobunches to read/write at a time. Increasing increases RAM usage
+           'chunkSize': 1200, #How many macrobunches to read/write at a time. Increasing increases RAM usage
 
-           'ampliRange': np.linspace(5, 80, 20),
-           'enerRange' : np.linspace(2, 8, 64)
+           'ampliRange': np.linspace(5, 80, 12),
+           'enerRange' : np.linspace(-3, 7, 32)
          }
 cfg = AttrDict(cfg)
 
@@ -92,14 +92,14 @@ except (KeyError):
 print(f"processing {len(flist)} files")
 for fname in flist:
     with h5py.File( fname ) as dataf:
-        print(f"processing {fname[-18:-3]}")
-
         #Check if OPIS raw data is present in file:
         try:
             dataf[cfg.hdf.opisTr0]
         except KeyError:
-            print(f"No OPIS traces in {fname}, continuing")
+            print(f"No OPIS traces in {fname[-18:-3]}, continuing")
             continue
+        else:
+            print(f"_____________________\nFile: {fname[-18:-3]}\n¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯")
 
         #Initialize slicers for the 4 tofs spectrometers
         opisSlicer0 = Slicer(cfg.slicing0, removeBg = True)
@@ -125,28 +125,33 @@ for fname in flist:
         for i, start in enumerate(chunks):
             starttime = endtime
             endtime = time()
-            print(f"chunk %d of %d (%.1f bunches/sec ) " % (i+1, len(chunks), cfg.chunkSize / (endtime-starttime) ) )
+
             sl = slice(start,start+cfg.chunkSize)
 
-            #Sanity checks
-            print(f"Retarder {pulses[sl].ret0.mean()}")
-
+            #Time bounds check
             if 'start' in cfg.output.keys():
                 if pulses[sl].time.iloc[-1] < cfg.output.start:
-                    print(f"skipping chunk {i}, time is too early")
+                    print("** skipping chunk, time is too early")
                     continue
                 if pulses[sl].time.iloc[0] > cfg.output.stop:
-                    print(f"skipping chunk {i}, time is too late")
+                    print("** skipping chunk, time is too late")
                     continue
 
+            #Sanity checks
             if pulses[sl].gasID.nunique() != 1:
-                print(f"skipping chunk {i}, more than one gasID setting")
+                print(f"** skipping chunk, more than one gasID setting")
                 continue
 
             if pulses[sl].gasID.isnull().values.any():
-                print(f"skipping chunk {i}, gasID contains Nan")
+                print(f"** skipping chunk, gasID contains Nan")
                 continue
-            fitter = ou.evFitter(pulses[sl].gasID.iloc[0])
+
+            #Ev converter only handles 170V retardation for now
+            if np.any( np.abs(pulses[sl].ret0 - 170) > 1 ):
+                print(f"skipping chunk, Retarder {pulses[sl].ret0.mean()}")
+                continue
+            #TODO: ADAPT evConv to retarder setting for now only 170V
+            evConv = ou.calibratedEvConv()
 
             shots0 = opisSlicer0( dataf[cfg.hdf.opisTr0][sl], pulses[sl])
             shots1 = opisSlicer1( dataf[cfg.hdf.opisTr1][sl], pulses[sl])
@@ -154,9 +159,7 @@ for fname in flist:
             shots3 = opisSlicer3( dataf[cfg.hdf.opisTr3][sl], pulses[sl])
             traces = [shots0, shots1, shots2, shots3]
 
-            #TODO: ADAPT evConv to retarder setting
-            evConv = ou.calibratedEvConv()
-
+            fitter = ou.evFitter(pulses[sl].gasID.iloc[0])
             def fitTraces(traces, evGuess):
                 fitter.loadTraces(traces, evConv, evGuess)
                 fitter.getOffsets()
@@ -170,7 +173,6 @@ for fname in flist:
             #check if all shots have the same undulator setting
             evGuesses = pulses[sl].undulEV.unique()
             if len(evGuesses) != 1:
-                print('iterating over evGuesses')
                 #Need a separate conversion block for each different undulator setting
                 #since we use the unulator setting as a starting guess for the ev fit
                 for evGuess in evGuesses:
@@ -183,8 +185,7 @@ for fname in flist:
                 fitted = fitTraces(traces, evGuess)
                 fout.append('opisFit', fitted)
 
-            print(pulses[sl])
-            print(fitted)
+            print(f"chunk {i+1} of {len(chunks)} | {datetime.fromtimestamp(pulses[sl].time.iloc[0])} | average ev {fitted.ev.mean():.1f} | Fit Speed {cfg.chunkSize / (endtime-starttime):.1f} bunches/sec ")
 fout.close()
 
 if cfg.output.fname == 'AUTO':
