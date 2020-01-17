@@ -121,10 +121,9 @@ for fname in flist:
 
         #Split up computation in cunks
         chunks = np.arange(0, dataf[cfg.hdf.opisTr1].shape[0], cfg.chunkSize)
-        endtime = 0
+        endtime = time()
         for i, start in enumerate(chunks):
             starttime = endtime
-            endtime = time()
 
             sl = slice(start,start+cfg.chunkSize)
 
@@ -185,6 +184,7 @@ for fname in flist:
                 fitted = fitTraces(traces, evGuess)
                 fout.append('opisFit', fitted)
 
+            endtime = time()
             print(f"chunk {i+1} of {len(chunks)} | {datetime.fromtimestamp(pulses[sl].time.iloc[0])} | avg ev {fitted.ev.mean():.1f} | speed {cfg.chunkSize / (endtime-starttime):.1f} bunch/sec ")
 fout.close()
 
