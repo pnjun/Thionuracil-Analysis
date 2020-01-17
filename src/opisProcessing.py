@@ -185,7 +185,7 @@ for fname in flist:
                 fitted = fitTraces(traces, evGuess)
                 fout.append('opisFit', fitted)
 
-            print(f"chunk {i+1} of {len(chunks)} | {datetime.fromtimestamp(pulses[sl].time.iloc[0])} | average ev {fitted.ev.mean():.1f} | Fit Speed {cfg.chunkSize / (endtime-starttime):.1f} bunches/sec ")
+            print(f"chunk {i+1} of {len(chunks)} | {datetime.fromtimestamp(pulses[sl].time.iloc[0])} | avg ev {fitted.ev.mean():.1f} | speed {cfg.chunkSize / (endtime-starttime):.1f} bunch/sec ")
 fout.close()
 
 if cfg.output.fname == 'AUTO':
