@@ -28,7 +28,7 @@ class evFitter:
             self.peaksData = [ [ 15.8, -1.00 ],
                                [ 29.3, -0.21 ]]
             #where to cut the spectrum in eV
-            self.evCuts = [5, 33]
+            self.evCuts = [8, 33]
 
             #How much samples to use at both ends of spectrum to allow for
             #offset fitting (should be a multiple of 16)

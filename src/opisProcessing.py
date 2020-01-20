@@ -22,7 +22,7 @@ from attrdict import AttrDict
 from utils import Slicer
 import opisUtils as ou
 from datetime import datetime
-
+import numba
 
 PREFIX = '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/'
 
@@ -37,8 +37,8 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
            'output'   : {
                           'folder' : '/media/Fast2/ThioUr/processed/',
                           'fname'  :  'second_block.h5',
-                          #'start' : datetime(2019,3,31,5,10,0).timestamp(),
-                          #'stop'  : datetime(2019,3,31,5,20,0).timestamp(),
+                          #'start' : datetime(2019,3,30,22,40,0).timestamp(),
+                          #'stop'  : datetime(2019,3,30,22,45,0).timestamp(),
                         },
            'hdf'      : { 'opisTr0'    : PREFIX + 'Raw data/CH00',
                           'opisTr1'    : PREFIX + 'Raw data/CH01',
@@ -171,21 +171,25 @@ for fname in flist:
 
             #check if all shots have the same undulator setting
             evGuesses = pulses[sl].undulEV.unique()
-            if len(evGuesses) != 1:
-                #Need a separate conversion block for each different undulator setting
-                #since we use the unulator setting as a starting guess for the ev fit
-                for evGuess in evGuesses:
-                    pulseIds = pulses[sl].query('undulEV == @evGuess').index
-                    newTraces = [tr.query('pulseId in @pulseIds') for tr in traces]
-                    fitted = fitTraces(newTraces, evGuess)
+            try:
+                if len(evGuesses) != 1:
+                    #Need a separate conversion block for each different undulator setting
+                    #since we use the unulator setting as a starting guess for the ev fit
+                    for evGuess in evGuesses:
+                        pulseIds = pulses[sl].query('undulEV == @evGuess').index
+                        newTraces = [tr.query('pulseId in @pulseIds') for tr in traces]
+                        fitted = fitTraces(newTraces, evGuess)
+                        fout.append('opisFit', fitted)
+                else:
+                    evGuess = pulses[sl].undulEV.iloc[0]
+                    fitted = fitTraces(traces, evGuess)
                     fout.append('opisFit', fitted)
-            else:
-                evGuess = pulses[sl].undulEV.iloc[0]
-                fitted = fitTraces(traces, evGuess)
-                fout.append('opisFit', fitted)
+            except numba.cuda.cudadrv.driver.CudaAPIError:
+                print(f"** skipping chunk, exception raised during fit")
+                continue
 
             endtime = time()
-            print(f"chunk {i+1} of {len(chunks)} | {datetime.fromtimestamp(pulses[sl].time.iloc[0])} | avg ev {fitted.ev.mean():.1f} | speed {cfg.chunkSize / (endtime-starttime):.1f} bunch/sec ")
+            print(f"chunk {i+1:02d} of {len(chunks)} | {datetime.fromtimestamp(pulses[sl].time.iloc[0])} | avg ev {fitted.ev.mean():.1f} | speed {cfg.chunkSize / (endtime-starttime):.1f} bunch/sec ")
 fout.close()
 
 if cfg.output.fname == 'AUTO':
