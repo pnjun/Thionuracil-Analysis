@@ -102,6 +102,10 @@ def getDiff(tofTrace, gmd = None, integSlice = None):
     else:
         tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 64) , 64 ](tof)
 
+    if tof.shape[1] == 3009:
+        #we have an extra point left there for future interpolation, drop it
+        tof[::2,-1] = 0
+
     if integSlice is not None:
         return pd.DataFrame( tof[::2, integSlice].sum(axis=1).get(),
                              index = tofTrace.index[::2])
