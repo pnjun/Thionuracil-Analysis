@@ -102,7 +102,7 @@ def getDiff(tofTrace, gmd = None, integSlice = None, lowPass = None):
     if lowPass is not None:
         tof = cp.fft.rfft(tof, axis=1)
         tof[:,-lowPass:] = 0
-        tof = cp.fft.irfft(tof, axis=1, n=3009)
+        tof = cp.fft.irfft(tof, axis=1, n=tof.shape[1])
 
     if gmd is not None:
         #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
