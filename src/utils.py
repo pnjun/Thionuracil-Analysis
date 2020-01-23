@@ -70,11 +70,14 @@ def shotsDelay(delaysData, bamData=None, shotsNum = None):
     return bam.get()
 
 
-def getDiff(tofTrace, gmd = None, integSlice = None):
+def getDiff(tofTrace, gmd = None, integSlice = None, lowPass = None):
     '''
     Function that gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
     If GMD is not None traces are normalized on gmd before difference calculation
     If integSlice is not none the integral of the traces over the given slicing is returned
+    If lowpass is given, a brickwall lowpass filter is applied to the data
+    before subtracting the traces. The lowpass value given will be the number
+    of harmonics removed from the signal
     '''
     from numba import cuda
     import cupy as cp
@@ -95,6 +98,12 @@ def getDiff(tofTrace, gmd = None, integSlice = None):
 
     #Get difference data
     tof = cp.array(tofTrace.to_numpy())
+
+    if lowPass is not None:
+        tof = cp.fft.rfft(tof, axis=1)
+        tof[:,-lowPass:] = 0
+        tof = cp.fft.irfft(tof, axis=1, n=3009)
+
     if gmd is not None:
         #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
         cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
