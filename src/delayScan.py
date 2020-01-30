@@ -140,16 +140,17 @@ for counter, chunk in enumerate(shotsTof):
     for binId, bin in enumerate(bins):
         name, group = bin
         group = group.query(cfg.sdfilter)
-        binTrace = shotsDiff.reindex(group.index).mean()
+        binIdx = shotsDiff.index.intersection(group.index)
+        binTrace = shotsDiff.reindex(binIdx)
 
-        if not binTrace.isnull().to_numpy().any():
-            if cfg.plots.fragmentSearch:
-                even = chunk.query('shotNum % 2 == 0')
-                odd =  chunk.query('shotNum % 1 == 0')
-                evenAcc[binId] += even.reindex(group.index).mean()
-                oddAcc[binId]  +=  odd.reindex(group.index).mean()
-            diffAcc[binId] += binTrace
-            binCount[binId] += 1
+        if cfg.plots.fragmentSearch:
+            even = chunk.query('shotNum % 2 == 0')
+            odd =  chunk.query('shotNum % 1 == 0')
+            odd.index = odd.index.set_levels(odd.index.levels[1] - 1, level=1)
+            evenAcc[binId] += even.reindex(binIdx).sum(axis=0)
+            oddAcc[binId]  += odd.reindex(binIdx).sum(axis=0)
+        diffAcc[binId] += binTrace.sum(axis=0)
+        binCount[binId] += binTrace.shape[0]
 
 idx.close()
 tr.close()
