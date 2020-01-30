@@ -9,10 +9,10 @@ from utils import evConverter
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'second_block.h5' #'71001915-71071776.h5' #'first block.h5'
+                          'trace'    : 'third_block.h5' #'71001915-71071776.h5' #'first block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,1,2,52,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,2,52,1).timestamp()
+           'time'     : { 'start' : datetime(2019,4,5,17,26,0).timestamp(),
+                          'stop'  : datetime(2019,4,5,17,26,1).timestamp()
                         }
       }
 cfg = AttrDict(cfg)

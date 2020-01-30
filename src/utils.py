@@ -102,7 +102,7 @@ def getDiff(tofTrace, gmd = None, integSlice = None, lowPass = None):
     if lowPass is not None:
         len = tof.shape[1]
         tof = cp.fft.rfft(tof, axis=1)
-        tof[:,-lowPass:] = 0
+        tof[:,-lowPass:] *= (1-cp.arange(0,1,lowPass))
         tof = cp.fft.irfft(tof, axis=1, n=len)
 
     if gmd is not None:
