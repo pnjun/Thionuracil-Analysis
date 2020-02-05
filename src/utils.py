@@ -155,23 +155,24 @@ def plotParams(shotsData):
         Wait for user to press ESC or close the windows before continuing.
     '''
     import matplotlib.pyplot as plt
-    f1 = plt.figure()
-    f1.suptitle("Uv Power histogram\nPress esc to continue")
+    f = plt.figure(figsize=(10, 10))
+    f.suptitle("Press ESC to continue")
+    a1 = f.add_subplot(311)
+    a1.title.set_text("Uv Power histogram")
     shotsData.uvPow.hist(bins=20)
-    f2 = plt.figure()
-    f2.suptitle(f"GMD histogram\nAverage:{shotsData.GMD.mean():.2f}")
+    a2 = f.add_subplot(312)
+    a2.title.set_text(f"GMD histogram\nAverage:{shotsData.GMD.mean():.2f}")
     shotsData.GMD.hist(bins=70)
-    f3 = plt.figure()
-    f3.suptitle("BAM histogram\nPress esc to continue")
+    a3 = f.add_subplot(313)
+    a3.title.set_text("BAM histogram")
     shotsData.BAM.hist(bins=15)
+
+    f.subplots_adjust(left=None, bottom=0.05, right=None, top=0.92, wspace=0.5, hspace=0.5)
+
     def closeFigs(event):
         if event.key == 'escape':
-            plt.close(f1)
-            plt.close(f2)
-            plt.close(f3)
-    f1.canvas.mpl_connect('key_press_event', closeFigs)
-    f2.canvas.mpl_connect('key_press_event', closeFigs)
-    f3.canvas.mpl_connect('key_press_event', closeFigs)
+            plt.close(f)
+    f.canvas.mpl_connect('key_press_event', closeFigs)
     plt.show()
 
 class mainTofEvConv:

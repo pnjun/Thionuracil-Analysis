@@ -149,14 +149,16 @@ if not cfg.onlyplot:
     binCount = np.zeros( ( len(energyBins),  len(delayBins)))
 
     evConv = utils.mainTofEvConv(pulses.retarder.mean())
-    evs = evConv(shotsTof.columns)
-    ROI = slice( np.abs(evs - cfg.integROIeV[1]).argmin() ,
-                 np.abs(evs - cfg.integROIeV[0]).argmin() )
 
     #Iterate over data chunks and accumulate them in img
     for counter, chunk in enumerate(shotsTof):
         print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}",
                end='\r' )
+
+        if counter == 0:
+            evs = evConv(chunk.columns)
+            ROI = slice( np.abs(evs - cfg.integROIeV[1]).argmin() ,
+                         np.abs(evs - cfg.integROIeV[0]).argmin() )
 
         #calculate difference spectra and integrate over photoline
         shotsDiff = utils.getDiff(chunk, gmdData, integSlice=ROI)
@@ -168,10 +170,10 @@ if not cfg.onlyplot:
 
             #iterate over energy bins (note taht energy bins are just pulseIds)
             for energyIdx, energyBin in enumerate(energyBins):
-                _, energyPulses = energyGroup
+                _, energyGroup = energyBin
                 binIdx = delayBinIdx.intersection(energyGroup.index)
 
-                binVal = shotsDiff.reindex(energyGroup.binIdx)
+                binVal = shotsDiff.reindex(binIdx)
                 diffAcc[energyIdx, delayIdx] += binVal
                 print(binVal.shape)
                 binCount[energyIdx, delayIdx] += binVal.shape[0]
