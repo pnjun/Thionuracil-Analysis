@@ -15,10 +15,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'fisrt_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'AugerTest'
+                          'fname'    : 'wp_10.2-random'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,20,59,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,21,5,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,18,28,0).timestamp(),
+                          'stop'  : datetime(2019,3,27,7,8,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (260.,280.),
                           'retarder'    : (-90,-70),
@@ -26,7 +26,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'waveplate'   : (9,12)
                         },
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
-           'delayBin_mode'  : 'CONSTANT', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
+           'delayBin_mode'  : 'CUSTOM', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.1,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 15,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
@@ -34,10 +34,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'useBAM'      : True,
 
            'plots' : { 'delay2d'    : True,
-                       'photoShift' : False,
+                       'photoShift' : True,
                        'valence'    : False,
-                       'auger2d'    : True,
-                       'fragmentSearch' : True, #Plot Auger trace at long delays to look for fragmentation
+                       'auger2d'    : False,
+                       'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
            },
            'writeOutput' : True, #Set to true to write out data in csv
            'onlyplot'    : True, #Set to true to load data form 'output' file and
@@ -206,16 +206,30 @@ if cfg.plots.auger2d:
     plt.tight_layout()
 
 if cfg.plots.photoShift:
-    #plot line graph of integral over photoline
+    #plot line graph of integral over photoline features
     plt.figure()
-    photoline1 = slice(np.abs(evs - 98.5).argmin() , np.abs(evs - 92).argmin())
-    photoline2 = slice(np.abs(evs - 100).argmin() , np.abs(evs - 98.5).argmin())
-    photoline3 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin())
+    photoline1 = slice(np.abs(evs - 101.5).argmin() , np.abs(evs - 95.5).argmin())
+    photoline2 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 101.5).argmin())
 
-    NegPhLine, = plt.plot(delays, diffAcc.T[photoline3].sum(axis=0), label = 'negative photoline shift')
-    PosPhLine1, = plt.plot(delays, diffAcc.T[photoline1].sum(axis=0), label = 'positive photoline shift 90-99 eV')
-    PosPhLine2, = plt.plot(delays, diffAcc.T[photoline2].sum(axis=0), label = 'positive photoline shift 99-100 eV')
-    plt.legend(handles=[PosPhLine1, PosPhLine2, NegPhLine])
+    NegPhLine, = plt.plot(delays, abs(diffAcc.T[photoline2].sum(axis=0)), label = 'negative photoline shift')
+    PosPhLine, = plt.plot(delays, abs(diffAcc.T[photoline1].sum(axis=0)), label = 'positive photoline shift')
+    plt.xlabel("Delay (ps)")
+    plt.ylabel("Integrated signal")
+    plt.legend(handles=[PosPhLine, NegPhLine])
+    plt.tight_layout()
+
+    # plot extrema as rough indication for possible shifts
+    plt.figure()
+    neg = diffAcc.T[photoline2].argmin(axis=0)
+    pos = diffAcc.T[photoline1].argmax(axis=0)
+
+    NegMax, = plt.plot(delays, evs[photoline2][neg], label = 'negative photoline shift')
+    PosMax, = plt.plot(delays, evs[photoline1][pos], label = 'negative photoline shift')
+    plt.xlabel("Delay (ps)")
+    plt.ylabel("Peak position (eV)")
+    plt.legend(handles=[PosMax, NegMax])
+    plt.tight_layout()
+
 
 if cfg.plots.valence:
     plt.figure()
