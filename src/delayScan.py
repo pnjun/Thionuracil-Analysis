@@ -206,7 +206,8 @@ if cfg.plots.auger2d:
     plt.tight_layout()
 
 if cfg.plots.photoShift:
-    #plot line graph of integral over photoline features
+    # quick plots for check. for more detailed analysis use photolineAnalysis.py
+    # plot line graph of integral over photoline features
     plt.figure()
     photoline1 = slice(np.abs(evs - 101.5).argmin() , np.abs(evs - 95.5).argmin())
     photoline2 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 101.5).argmin())
