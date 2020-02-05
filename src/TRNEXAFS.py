@@ -11,36 +11,32 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'second_block.h5'
+                          'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
                           'fname'    : 'TrNexafsTest'
                         },
-           'time'     : { 'start' : datetime(2019,3,31,20,58,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,0,22,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,20,59,0).timestamp(),
+                          'stop'  : datetime(2019,4,6,5,13,0).timestamp(),
                         },
-           'filters'  : { 'undulatorEV' : (210.,225.),
-                          'retarder'    : (-10,0),
+           'filters'  : { 'undulatorEV' : (160.,173),
+                          'retarder'    : (-11,-9),
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (12,14)
                         },
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 15,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 10,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
-           'timeZero'    : 1256.9,   #Used to correct delays
-           'integROIeV'  : (125,140),
-           'decimate'    : True, #Decimate macrobunches before analizinintegROIeVg. Use for quick evalutation of large datasets
+           'timeZero'    : 1261.7,   #Used to correct delays
+           'integROIeV'  : (125,150),
+           'decimate'    : False, #Decimate macrobunches before analizinintegROIeVg. Use for quick evalutation of large datasets
 
            'plots' : {
-                       'delay2d'    : True,
-                       'photoShift' : False,
-                       'valence'    : False,
-                       'auger2d'    : True,
-                       'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
+                       'trnexafs'    : True,
            },
            'writeOutput' : True, #Set to true to write out data in csv
            'onlyplot'    : False, #Set to true to load data form 'output' file and
@@ -167,30 +163,39 @@ if not cfg.onlyplot:
             _, group = delayBin
             group = group.query(cfg.sdfilter)
             delayBinIdx   = shotsDiff.index.intersection(group.index)
+            delayBinTrace = shotsDiff.reindex(delayBinIdx)
 
             #iterate over energy bins (note taht energy bins are just pulseIds)
             for energyIdx, energyBin in enumerate(energyBins):
                 _, energyGroup = energyBin
-                binIdx = delayBinIdx.intersection(energyGroup.index)
-
-                binVal = shotsDiff.reindex(binIdx)
-                diffAcc[energyIdx, delayIdx] += binVal
-                print(binVal.shape)
-                binCount[energyIdx, delayIdx] += binVal.shape[0]
+                binTrace = delayBinTrace.query('pulseId in @energyGroup.index')
+                diffAcc[energyIdx, delayIdx] += binTrace.sum().to_numpy()
+                binCount[energyIdx, delayIdx] += binTrace.shape[0]
 
     idx.close()
     tr.close()
 
     diffAcc /= binCount
+    if uvEven > uvOdd: diffAcc *= -1
 
-#plot resulting image
+    if cfg.writeOutput:
+        df = pd.DataFrame(data = diffAcc,columns=delays, index=energy).fillna(0)
+        df.to_csv(cfg.output.path + cfg.output.fname + ".csv", mode="w")
 
-plt.pcolor(delays, energy, img, cmap='bwr')
+
+if cfg.onlyplot:
+    df = pd.read_csv(cfg.output.path + cfg.output.fname + ".csv", index_col=0)
+    diffAcc = df.to_numpy()
+    delays = df.columns.to_numpy(dtype=np.float32)
+    energy = df.index.to_numpy()
+
+if cfg.plots.trnexafs:
+    plt.figure(figsize=(9, 7))
+    plt.suptitle(f"Integrated signal {cfg.integROIeV[0]}:{cfg.integROIeV[1]} eV")
+    cmax = np.percentile(np.abs(diffAcc),99.5)
+    plt.pcolormesh(energy, delays, diffAcc.T,
+                   cmap='bwr', vmax=cmax, vmin=-cmax)
+    plt.xlabel("Undulator Energy (eV)")
+    plt.ylabel("Delay (ps)")
+
 plt.show()
-
-exit()
-#save output for plotting
-with open(cgf.outFname + '.pickle', 'wb') as fout:
-    pickle.dump(cfg, fout)
-
-np.savetxt(cgf.outFname + '.txt', results)
