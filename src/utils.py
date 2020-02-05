@@ -123,11 +123,16 @@ def getDiff(tofTrace, gmd = None, integSlice = None, lowPass = None):
         return pd.DataFrame( tof[::2].get(),
                              index = tofTrace.index[::2], columns=tofTrace.columns)
 
-def getROI(shotsData):
+def getROI(shotsData, limits=None):
     ''' show user histogram of delays and get ROI boundaries dragging over the plot'''
     #Show histogram and get center point for binning
     import matplotlib.pyplot as plt
-    shotsData.delay.hist(bins=60)
+
+    if limits is not None:
+        shotsData.query('delay > @limits[0] and delay < @limits[1]').delay.hist(bins=60)
+    else:
+        shotsData.delay.hist(bins=60)
+
     def getBinStart(event):
         global binStart
         binStart = event.xdata
@@ -156,12 +161,17 @@ def plotParams(shotsData):
     f2 = plt.figure()
     f2.suptitle(f"GMD histogram\nAverage:{shotsData.GMD.mean():.2f}")
     shotsData.GMD.hist(bins=70)
+    f3 = plt.figure()
+    f3.suptitle("BAM histogram\nPress esc to continue")
+    shotsData.BAM.hist(bins=15)
     def closeFigs(event):
         if event.key == 'escape':
             plt.close(f1)
             plt.close(f2)
+            plt.close(f3)
     f1.canvas.mpl_connect('key_press_event', closeFigs)
     f2.canvas.mpl_connect('key_press_event', closeFigs)
+    f3.canvas.mpl_connect('key_press_event', closeFigs)
     plt.show()
 
 class mainTofEvConv:

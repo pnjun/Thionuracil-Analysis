@@ -1,11 +1,10 @@
 #!/usr/bin/python3
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from datetime import datetime
 from attrdict import AttrDict
-#from utils import mainTofEvConv
-
+import matplotlib.pyplot as plt
+import sys
 import utils
 
 import pickle
@@ -15,15 +14,15 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'fisrt_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'DelayLong270ev'
+                          'fname'    : 'DelayShort270ev'
                         },
-           'time'     : { 'start' : datetime(2019,3,27,3,24,0).timestamp(),
-                          'stop'  : datetime(2019,3,27,4,18,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,27,4,28,0).timestamp(),
+                          'stop'  : datetime(2019,3,27,5,54,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (260.,280.),
                           'retarder'    : (-90,-70),
                           #'delay'       : (1170, 1185.0),
-                          'waveplate'   : (7.5,8.5)
+                          'waveplate'   : (9,11)
                         },
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
@@ -33,7 +32,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1178.4,   #Used to correct delays
-           'decimate'    : True, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
+           'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
            'plots' : {
                        'delay2d'    : True,
@@ -122,7 +121,7 @@ if not cfg.onlyplot:
 
     else:
     	#choose from a plot generated
-        binStart, binEnd = utils.getROI(shotsData)
+        binStart, binEnd = utils.getROI(shotsData, limits=(-5,20))
         print(f"Binning interval {binStart} : {binEnd}")
 
         #Bin data on delay
@@ -204,7 +203,6 @@ if cfg.plots.delay2d:
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
-    plt.tight_layout()
 
 if cfg.plots.auger2d:
     ROI = slice(np.abs(evs - 160).argmin() , np.abs(evs - 120).argmin())
@@ -215,8 +213,6 @@ if cfg.plots.auger2d:
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
-    plt.grid()
-    plt.tight_layout()
 
 if cfg.plots.photoShift:
     # quick plots for check. for more detailed analysis use photolineAnalysis.py
