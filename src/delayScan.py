@@ -15,32 +15,35 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'fisrt_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'AugerTest'
+                          'fname'    : 'DelayLong270ev'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,20,59,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,21,5,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,27,3,24,0).timestamp(),
+                          'stop'  : datetime(2019,3,27,4,18,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (260.,280.),
                           'retarder'    : (-90,-70),
                           #'delay'       : (1170, 1185.0),
-                          'waveplate'   : (9,12)
+                          'waveplate'   : (7.5,8.5)
                         },
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
-           'delayBin_mode'  : 'CONSTANT', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
-           'delayBinStep'   : 0.1,     # Size of bins, only relevant when delayBin_mode is CONSTANT
+           'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
+           'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 15,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
+           'timeZero'    : 1178.4,   #Used to correct delays
+           'decimate'    : True, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
-           'plots' : { 'delay2d'    : True,
+           'plots' : {
+                       'delay2d'    : True,
                        'photoShift' : False,
                        'valence'    : False,
                        'auger2d'    : True,
-                       'fragmentSearch' : True, #Plot Auger trace at long delays to look for fragmentation
+                       'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
            },
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : True, #Set to true to load data form 'output' file and
+           'onlyplot'    : False, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
@@ -63,6 +66,10 @@ if not cfg.onlyplot:
         raise Exception("No pulses satisfy filter condition")
     else:
         pulses = fpulses
+
+    if cfg.decimate:
+        print("Decimating...")
+        pulses = pulses.query('index % 10 == 0')
 
     shotsData = utils.h5load('shotsData', tr, pulses)
 
@@ -100,7 +107,10 @@ if not cfg.onlyplot:
     else:
         shotsData['delay'] = utils.shotsDelay(pulses.delay.to_numpy(), shotsNum = shotsNum)
         averageBamShift = np.float32(0.)
-    print(f"Loading {shotsData.shape[0]*2} shots")
+    shotsData.delay = cfg.timeZero - averageBamShift - shotsData.delay
+
+    shotsCount = shotsData.shape[0]*2
+    print(f"Loading {shotsCount} shots")
 
 
     #chose binning dependent on delaybin_mode
@@ -138,7 +148,8 @@ if not cfg.onlyplot:
 
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
-        print( f"loading chunk {counter} of {shotsData.shape[0]*2//cfg.ioChunkSize}", end='\r' )
+        print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}",
+               end='\r' )
         shotsDiff = utils.getDiff(chunk, gmdData)
         for binId, bin in enumerate(bins):
             name, group = bin
@@ -185,25 +196,24 @@ if cfg.onlyplot:
 
 #plot resulting image
 if cfg.plots.delay2d:
-    plt.figure()
-    cmax = np.max(np.abs(diffAcc))
-    plt.pcolormesh(evs, delays ,diffAcc, cmap='bwr', vmax=cmax, vmin=-cmax)
-    plt.xlabel("Kinetic energy (eV)")
-    plt.ylabel("Delay (ps)")
-    plt.tight_layout()
-
-if cfg.plots.auger2d:
-    auger = slice(np.abs(evs - 160).argmin() , np.abs(evs - 130).argmin())
-    auger = slice(None,None)
-    plt.figure()
-    plt.suptitle("Auger Kinetic Energy vs Delay")
-    cmax = np.max(np.abs(diffAcc[auger]))
-    plt.pcolormesh(evs[auger], delays, diffAcc[auger],
+    ROI = slice(np.abs(evs - 270).argmin() , None)
+    plt.figure(figsize=(9, 7))
+    plt.suptitle("Kinetic Energy vs Delay. Photon Energy 270eV")
+    cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
+    plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
-    plt.grid()
-    plt.tight_layout()
+
+if cfg.plots.auger2d:
+    ROI = slice(np.abs(evs - 160).argmin() , np.abs(evs - 120).argmin())
+    plt.figure(figsize=(9, 7))
+    plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270eV")
+    cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
+    plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
+                   cmap='bwr', vmax=cmax, vmin=-cmax)
+    plt.xlabel("Kinetic energy (eV)")
+    plt.ylabel("Delay (ps)")
 
 if cfg.plots.photoShift:
     #plot line graph of integral over photoline
@@ -221,7 +231,6 @@ if cfg.plots.valence:
     plt.figure()
     valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin())
     plt.plot(delays, diffAcc.T[valence].sum(axis=0))
-
 
 
 if cfg.plots.fragmentSearch and not cfg.onlyplot:
