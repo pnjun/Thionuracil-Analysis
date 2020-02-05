@@ -204,6 +204,7 @@ if cfg.plots.delay2d:
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
+    plt.tight_layout()
 
 if cfg.plots.auger2d:
     ROI = slice(np.abs(evs - 160).argmin() , np.abs(evs - 120).argmin())
@@ -214,23 +215,41 @@ if cfg.plots.auger2d:
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
+    plt.grid()
+    plt.tight_layout()
 
 if cfg.plots.photoShift:
-    #plot line graph of integral over photoline
+    # quick plots for check. for more detailed analysis use photolineAnalysis.py
+    # plot line graph of integral over photoline features
     plt.figure()
-    photoline1 = slice(np.abs(evs - 98.5).argmin() , np.abs(evs - 92).argmin())
-    photoline2 = slice(np.abs(evs - 100).argmin() , np.abs(evs - 98.5).argmin())
-    photoline3 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin())
+    photoline1 = slice(np.abs(evs - 101.5).argmin() , np.abs(evs - 95.5).argmin())
+    photoline2 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 101.5).argmin())
 
-    NegPhLine, = plt.plot(delays, diffAcc.T[photoline3].sum(axis=0), label = 'negative photoline shift')
-    PosPhLine1, = plt.plot(delays, diffAcc.T[photoline1].sum(axis=0), label = 'positive photoline shift 90-99 eV')
-    PosPhLine2, = plt.plot(delays, diffAcc.T[photoline2].sum(axis=0), label = 'positive photoline shift 99-100 eV')
-    plt.legend(handles=[PosPhLine1, PosPhLine2, NegPhLine])
+    NegPhLine, = plt.plot(delays, abs(diffAcc.T[photoline2].sum(axis=0)), label = 'negative photoline shift')
+    PosPhLine, = plt.plot(delays, abs(diffAcc.T[photoline1].sum(axis=0)), label = 'positive photoline shift')
+    plt.xlabel("Delay (ps)")
+    plt.ylabel("Integrated signal")
+    plt.legend(handles=[PosPhLine, NegPhLine])
+    plt.tight_layout()
+
+    # plot extrema as rough indication for possible shifts
+    plt.figure()
+    neg = diffAcc.T[photoline2].argmin(axis=0)
+    pos = diffAcc.T[photoline1].argmax(axis=0)
+
+    NegMax, = plt.plot(delays, evs[photoline2][neg], label = 'negative photoline shift')
+    PosMax, = plt.plot(delays, evs[photoline1][pos], label = 'negative photoline shift')
+    plt.xlabel("Delay (ps)")
+    plt.ylabel("Peak position (eV)")
+    plt.legend(handles=[PosMax, NegMax])
+    plt.tight_layout()
+
 
 if cfg.plots.valence:
     plt.figure()
     valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin())
     plt.plot(delays, diffAcc.T[valence].sum(axis=0))
+
 
 
 if cfg.plots.fragmentSearch and not cfg.onlyplot:

@@ -2,7 +2,7 @@
 """
 Script for analysing sulfur 2p photoline
 
-script uses csv files created with delayScan.py.
+script uses csv files created with delayScan.py
 """
 import pandas as pd
 import numpy as np
@@ -12,21 +12,21 @@ from attrdict import AttrDict
 
 cfg = { "data" : { "folder" : "./data/",
                    "file"   : "wp-10.2.csv", # only processed data from delayScan.py
-#                   "uvFile" : "wp-10.2_shotsData.csv" # comment out if no uv power data for comparison
                    },
         "out"  : { "folder"     : "./Plots/",
-                   "tag"        : "wp_10.2",
-                   "showPlots"  : True,
+                   "tag"        : "wp_10.2_2.0ps",
+                   "showPlots"  : False,
                    "plotFormat" : "png",
                    "dpi"        : 300
                    },
         "ROI"  : { "ekin"  : (90, 110),  # kinetic energy at which the photoline is located
-                   "delay" : (-0.3, 10.0)  # delays of interest
+                   "delay" : (-0.3, 2.1)  # delays of interest
                    },
-        "t0"   : 1180.0,  # time zero estimate
-        "energy" : "binding",  # choose between kinetic or binding
+        "t0"   : 1180.,  # time zero estimate
+        "energy" : "kinetic",  # choose between kinetic or binding
         "Eph"  : 272.,  # photon energy of soft x-rays
-        "fitGuess" : (3., 168., 5., 7., 172., 3., 0.01)  # guess for gaussian fit
+        "fitGuess" : (3., 101, 5., 7., 103., 3., 0.01),  # guess for gaussian fit
+        "PLCorr" : True  # Correcting photoline shift by shift in negative feature
         }
 cfg = AttrDict(cfg)
 
@@ -173,6 +173,7 @@ if cfg.energy == "binding":
 else:
     energy = np.arange(cfg.ROI.ekin[0], cfg.ROI.ekin[1], 0.1)
 
+print("Start with fitting double gaussian modell...")
 for i in range(len(data.values)):
 
     pGuess = cfg.fitGuess
@@ -196,11 +197,17 @@ fit = pd.DataFrame(data=np.array(fit), index=data.index.values, columns=energy).
 mOpt.to_csv(cfg.data.folder+"Fits/"+cfg.out.tag+"_diffMapOptParam.csv", sep=",")
 mCov.to_csv(cfg.data.folder+"Fits/"+cfg.out.tag+"_diffMapOptError.csv", sep=",")
 
+print("Offsets derived from fit:")
+print(mOpt.loc["const"])
+
 #mCov = mCov.T.query("A1 < 5 & A2 < 2").T
 #mOpt = mOpt.T.drop(mOpt.T.index.difference(mCov.T.index)).T
 #fit = fit.drop(fit.index.difference(mCov.T.index))
 
+#################################
 ### Difference map comparison ###
+#################################
+print("Plot difference map...")
 
 f1, ax1 = plt.subplots(1, 2, figsize=(9, 4), sharey=True)
 
@@ -228,7 +235,10 @@ cb.set_label("Difference counts")
 plt.tight_layout()
 plt.savefig(cfg.out.folder+cfg.out.tag+"_diffMap."+cfg.out.plotFormat, dpi=cfg.out.dpi)
 
+#########################################
 ### Amplitude of the fitted gaussians ###
+#########################################
+print("Plot amplitude...")
 
 color1 = "tab:red"
 color2 = "tab:blue"
@@ -253,14 +263,20 @@ ax21[1].set_ylabel("Amplitude ratio")
 plt.tight_layout()
 plt.savefig(cfg.out.folder+cfg.out.tag+"_fitAmp."+cfg.out.plotFormat, dpi=cfg.out.dpi)
 
+################################
 ### Peak position comparison ###
+################################
+print("Plot peak position...")
 
 f22, ax22 = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
 
 ax22[0].errorbar(mOpt.columns.values, mOpt.loc["x1"], yerr=mCov.loc["x1"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color1, label="Gauß 1")
 ax22[0].errorbar(mOpt.columns.values, mOpt.loc["x2"], yerr=mCov.loc["x2"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color2, label="Gauß 2")
 ax22[0].set_ylabel("Peak position (eV)")
-#ax22[0].set_ylim(99, 105)
+if cfg.energy == "kinetic":
+    ax22[0].set_ylim(cfg.ROI.ekin[0]*1.05, cfg.ROI.ekin[1]*0.96)
+else:
+    ax22[0].set_ylim(eRange[0]*1.025, eRange[1]*0.97)
 ax22[0].legend()
 
 posDiff = mOpt.loc["x1"] - mOpt.loc["x2"]
@@ -269,13 +285,44 @@ upDiff = abs(mCov.loc["x1"]) + abs(mCov.loc["x2"])
 ax22[1].errorbar(mOpt.columns.values, posDiff, yerr=upDiff, fmt=".", markersize=2, capsize=2, elinewidth=1)
 ax22[1].set_xlabel("Delay (ps)")
 ax22[1].set_ylabel("Difference position (eV)")
-#ax22[1].set_ylim(-6, 2)
+ax22[1].set_ylim(-5, 5)
 ax22[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
 
 plt.tight_layout()
 plt.savefig(cfg.out.folder+cfg.out.tag+"_fitPeak."+cfg.out.plotFormat, dpi=cfg.out.dpi)
 
+if cfg.PLCorr:
+    print("Correct peak position by change in negative feature...")
+    # correct for photoline wobbling
+    # assumes that the depletion feature should stay at a constant energy
+    negMean = mOpt.loc["x2"].mean()
+    negStd  = mOpt.loc["x2"].std()
+    diff = mOpt.loc["x2"] - negMean
+    diffErr = mCov.loc["x2"] + negStd
+
+    print(f"Mean position of depletion: {negMean:.2f} +- {negStd:.2f} eV")
+    print(f"Average absolute displacement: {abs(diff).mean():.2f} +- {abs(diff).std():.2f} eV")
+
+    shiftedPos = mOpt.loc["x1"] - diff
+    shiftedPosErr = mCov.loc["x1"] + diffErr
+
+    f2x, ax2x = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
+
+    ax2x[0].errorbar(diff.index.values, diff.values, yerr=diffErr.values,
+                    fmt=".", markersize=2, capsize=2, elinewidth=1)
+    ax2x[1].errorbar(shiftedPos.index.values, shiftedPos.values, yerr=shiftedPosErr.values,
+                    fmt=".", markersize=2, capsize=2, elinewidth=1)
+    ax2x[1].hlines(negMean, xmin=diff.index.values[0], xmax=diff.index.values[-1])
+    ax2x[0].set_ylabel("Depletion wobbling (eV)")
+    ax2x[1].set_ylabel("Corrected peak position (eV)")
+    ax2x[1].set_xlabel("Delay (ps)")
+    plt.tight_layout()
+    plt.savefig(cfg.out.folder+cfg.out.tag+"_peakCorr."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+
+#############################
 ### Peak width comparison ###
+#############################
+print("Plot peak width...")
 
 f23, ax23 = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
 
@@ -295,7 +342,10 @@ ax23[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
 plt.tight_layout()
 plt.savefig(cfg.out.folder+cfg.out.tag+"_fitWidth."+cfg.out.plotFormat, dpi=cfg.out.dpi)
 
+##########################
 ### Find zero-crossing ###
+##########################
+print("Calculate zero-crossing...")
 
 dZero = []
 fZero = []
@@ -321,45 +371,18 @@ f3, ax3 = plt.subplots()
 ax3.plot(dZero.columns.values, dZero.loc["x0"], ".", markersize=4, color="tab:blue", label="data")
 ax3.plot(fZero.columns.values, fZero.loc["x0"], ".", markersize=4, color="tab:orange", label="fit")
 ax3.set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
-#ax3.set_ylim(99, 104)
+zeroMean = dZero.loc["x0"].mean()
+ax3.set_ylim(zeroMean*0.98, zeroMean*1.02)
 ax3.set_xlabel("Delay (ps)")
 ax3.set_ylabel("Zero position (eV)")
 ax3.legend()
 plt.tight_layout()
 plt.savefig(cfg.out.folder + cfg.out.tag + "_zeroPos."+cfg.out.plotFormat, dpi=cfg.out.dpi)
 
-### checking for correlation between uv and zero position ###
-
-try:
-    #stats = pd.read_csv(cfg.data.folder+cfg.data.uvFile, sep=",", index_col=None, header=0)
-    stats = np.genfromtxt(cfg.data.folder+cfg.data.uvFile, delimiter=",", skip_header=1)
-    stats = pd.DataFrame(data=stats, index=delay, columns=np.array(["delayExp", "delayError", "gmd", "gmdError", "uvPow", "uvPowError"]))
-    stats.index.name = "delay"
-
-    statsD = stats.drop(stats.index.difference(dZero.T.index))
-    dZero = dZero.T.drop(dZero.T.index.difference(stats.index)).T
-    statsF = stats.drop(stats.index.difference(fZero.T.index))
-    fZero = fZero.T.drop(fZero.T.index.difference(stats.index)).T
-
-    uvCorrD = statsD.loc["uvPow"].corr(dZero.loc["x0"], method="spearman")
-    print(uvCorrD)
-    uvCorrF = statsF.loc["uvPow"].corr(fZero.loc["x0"], method="spearman")
-    print(uvCorrF)
-
-    f31 = plt.figure()
-    plt.plot(statsD.loc["uvPow"].values, dZero.loc["x0"].values, ".", label=f"Data ({uvCorrD:.3f})")
-    plt.plot(statsF.loc["uvPow"].values, fZero.loc["x0"].values, ".", label=f"Fit ({uvCorrF:.3f})")
-    plt.xlabel("UV power")
-    plt.ylabel("Zero position (eV)")
-    plt.ylim(99, 104)
-    plt.legend()
-    plt.savefig(cfg.out.folder + cfg.out.tag + "_zeroPosCorr." + cfg.out.plotFormat, dpi=cfg.out.dpi)
-
-except AttributeError:
-    print("no uv data for comparison.")
-
-
+######################
 ### Calculate area ###
+######################
+print("Calculate integrated signal...")
 
 def integral(series):
     a = 0
@@ -411,6 +434,7 @@ ax4[1].legend()
 plt.tight_layout()
 plt.savefig(cfg.out.folder+cfg.out.tag+"_area." + cfg.out.plotFormat, dpi=cfg.out.dpi)
 
+print("Done.")
 
 if cfg.out.showPlots:
     plt.show()
