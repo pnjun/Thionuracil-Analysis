@@ -70,11 +70,10 @@ def shotsDelay(delaysData, bamData=None, shotsNum = None):
     return bam.get()
 
 
-def getDiff(tofTrace, gmd = None, integSlice = None, lowPass = None):
+def getDiff(tofTrace, gmd = None, lowPass = None):
     '''
     Function that gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
     If GMD is not None traces are normalized on gmd before difference calculation
-    If integSlice is not none the integral of the traces over the given slicing is returned
     If lowpass is given, a brickwall lowpass filter is applied to the data
     before subtracting the traces. The lowpass value given will be the number
     of harmonics removed from the signal
@@ -116,12 +115,46 @@ def getDiff(tofTrace, gmd = None, integSlice = None, lowPass = None):
         #we have an extra point left there for future interpolation, drop it
         tof[::2,-1] = 0
 
-    if integSlice is not None:
-        return pd.DataFrame( tof[::2, integSlice].sum(axis=1).get(),
-                             index = tofTrace.index[::2])
-    else:
-        return pd.DataFrame( tof[::2].get(),
-                             index = tofTrace.index[::2], columns=tofTrace.columns)
+    return pd.DataFrame( tof[::2].get(),
+                         index = tofTrace.index[::2], columns=tofTrace.columns)
+
+def getInteg(tofTrace,  integSlice, gmd = None, getDiff = False):
+    '''
+    Integrates the traces over the given slice and returns the results.
+    If GMD is not None traces are normalized on gmd before difference calculation
+    If getDiff is True, the even - odd differences are returned as well
+    '''
+    from numba import cuda
+    import cupy as cp
+
+    tof = cp.array(tofTrace.to_numpy())
+
+    if gmd is not None:
+        @cuda.jit
+        def GMDCorrect(tof, gmd):
+            row = cuda.blockIdx.x
+            col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
+            tof[ row, col ]  /= gmd[row]
+
+        cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
+        GMDCorrect[ (tof.shape[0], tof.shape[1] // 64) , 64 ](tof, cuGmd)
+
+    if tof.shape[1] == 3009:
+        #we have an extra point left there for future interpolation, drop it
+        tof[:,-1] = 0
+
+    integ = tof[:, integSlice].sum(axis=1)
+    integDF = pd.DataFrame( integ.get(), index = tofTrace.index[:])
+
+    if getDiff:
+        diffs = integ[::2] - integ[1::2]
+        diffsDF = pd.DataFrame( diffs.get(), index = tofTrace.index[::2])
+        return integDF, diffsDF
+
+    return integDF
+
+
+
 
 def getROI(shotsData, limits=None):
     ''' show user histogram of delays and get ROI boundaries dragging over the plot'''
@@ -254,49 +287,20 @@ class Slicer:
         except ValueError:
             return None
 
-class evConverter:
-    ''' Converts between tof and ev for a given retardation voltage
-        Units are volts, electronvolts and microseconds
-        Retarder must be a vectorized callable with the lenght and maxV attributes.
-        Use the classmethods to create a converted already calibrated for the main tof
-        or the OPIS tofs
+class beamTimeEvConv:
+    ''' EV CONVERSION USED AT THE BEAMTIME. IT IS WRONG
     '''
-    def __init__(self, retarder, lenght, evMin, evMax, evStep):
-        print("# WARNING: evConverter is deprecated and will be removed. Use mainTofEvConv")
+    def __init__(self, retarder):
         self.r = retarder
-        self.l = lenght
-
-        evRange = np.arange(evMin, evMax, evStep)
-        tofVals = [ self.ev2tof(ev) for ev in evRange ]
-        self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
-
-    @classmethod
-    def mainTof(cls, retarder, mcp = None, evOffset = 0.6):
-        ''' Defines the potential model for the TOF spectrometer
-            offset is a global 'retardation' we apply for absolutely no reason
-            except that it makes the calibration better.
-        '''
-        if mcp is None: mcp = retarder
-
-        def potential(x):
-            if   x < 0.05:               #free flight before retarder lens
-                return -evOffset
-            elif x < 1.784:               #flight inside tube
-                return -evOffset + retarder
-            else:                         #acceleration before MCP
-                return -evOffset + mcp
-        #retarder is negative! => we want electron energies above -retarder [eV]
-        return cls(potential, 1.787, -retarder+evOffset+2, -retarder+evOffset+350, 1)
 
     def __call__(self, tof):
-        return self.interpolator(tof)
-
-    def ev2tof(self, e):
-        return integ.quad( lambda x : self._integrand(x,e), 0, self.l)[0]
-
-    def _integrand(self, x, en):
+        if isinstance(tof, pd.Index):
+            tof = tof.to_numpy(dtype=np.float32)
+        s = 1.7
         m_over_e = 5.69
-        return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!'''
+
+        # UNITS AND ORDERS OF MAGNITUDE DO CHECK OUT
+        return 0.5 * m_over_e * ( s / tof )**2 - self.r
 
 
 CUSTOM_BINS_RIGHT = np.array(
