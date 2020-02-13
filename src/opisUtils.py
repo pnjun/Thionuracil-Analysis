@@ -9,6 +9,7 @@ from numba import cuda
 
 import math
 import cupy as cp
+from attrdict import AttrDict
 
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
@@ -506,6 +507,225 @@ class evFitter:
         self.fitResults = np.array([fittedEn.get(), fittedAmpli.get(), fittedFwhm.get()]).T
 
         return self.fitResults
+
+class evFitter2ElectricBoogaloo:
+    def __init__(self, gasID):
+        self.ignoreThreshold = 40. #minimum integral for a shot to be considered valid
+
+        self.fitSpeed = AttrDict({'e' : 0.00006,
+                                  'a' : 0.0006,
+                                  'f' : 0.00006})
+
+        #Parameters of a peak for fitting: energy and relative amplitude
+        if gasID == GAS_ID_AR:
+                        #      energy  ampli
+            self.peaksData = [ [ 15.8, -1.00 ],
+                               [ 29.3, -0.21 ]]
+            #where to cut the spectrum in eV
+            self.evCuts = [0, 40]
+
+            #Extent for max cross correlation search
+            #Minumum zero padding lenght (zero padding might be more)
+            self.maxOffset = 32
+
+        else:
+            raise Exception("Gas id not valid")
+
+    def loadTraces(self, data, evConv, evGuess):
+        ''' Loads Tof traces and corresponding energy axis to
+            the GPU memory. Each array is sliced so that only
+            the relevant peak data is loaded '''
+        assert(data[0].shape == data[1].shape )
+        assert(data[0].shape == data[2].shape )
+        assert(data[0].shape == data[2].shape )
+
+        #Get peak bounds in samples for tof slicing. We use channel 0
+        #Other channels might have sligtly different values, but
+        #we are interested in a rough cut and doing it this way
+        #ensures that all tofs are sliced in the same place
+        baseEn = evConv[0](data[0].columns)
+        s = np.abs( baseEn - (evGuess - self.evCuts[0] )).argmin()
+        e = np.abs( baseEn - (evGuess - self.evCuts[1] )).argmin()
+
+        #TODO: fix ev generation so that roi all the way down to 0 can be used
+        self.ROIBounds = slice(s,e)
+        if self.ROIBounds.start - self.maxOffset < 0:
+            warnings.warn("Not enough data to cover ROI (low energy)")
+            self.ROIBounds = slice(self.maxOffset,self.ROIBounds.stop)
+
+        if self.ROIBounds.stop + self.maxOffset > data[0].shape[1]:
+            warnings.warn("Not enough data to cover ROI (high energy)")
+            self.ROIBounds = slice(self.ROIBounds.start,-self.maxOffset)
+
+        self.shotsNum = data[0].shape[0]
+
+        #Lenght of actual data in each trace
+        self.traceLen = data[0].columns[self.ROIBounds].shape[0]
+        #Smallest power of 2 greater than tracelen + 2*maxOffset
+        #the padding is extended to 2^n for FFT optimization
+        self.traceTot = 1<<(self.traceLen + 2*self.maxOffset -1).bit_length()
+        tracePad = (self.traceTot - self.traceLen) // 2
+        #Slice corresponding to real data in padded trace
+        self.traceSlice = slice(tracePad , tracePad + self.traceLen)
+
+        # Will be filled with of energyvals and tofdata
+        #Shape: (4, shotsNum, samples). The 4 is for the 4 tofs spectrometers
+        self.traces = cp.zeros((4, self.shotsNum, self.traceTot))
+
+        for n, tof in enumerate(data):
+            roiData = tof.iloc[:,self.ROIBounds].to_numpy()
+            self.traces[n, :, self.traceSlice] = cp.array(roiData)
+
+        #Integral of ROI
+        self.integs = cp.linalg.norm(self.traces[:,:,self.traceSlice],
+                                    axis=2)
+
+        #Init ev converters
+        cols = tof.columns.to_numpy(dtype=np.float32)
+        cols2 = cols + (cols[1] - cols[0])/2
+
+        self._energies = cp.array( [ evConv[0](cols), evConv[0](cols2) ] )
+
+    @staticmethod
+    def gauss(x, fwhm):
+        ''' Gaussian fitting function (helper)'''
+        xp = cp.get_array_module(x)
+        return xp.exp( - 2.7726* x**2/fwhm**2)
+
+    #Generates a fit spectrum by linear combination of gaussians
+    def spectrumFit(self, x, e, a, f):
+        ret = 0.
+        for p in self.peaksData:
+            ret += p[1] * self.gauss(e - x - p[0], f)
+        return a * ret
+
+    #Analytic Gradient of fit function
+    def spectrumGrad(self, x, e, a, f):
+        da = 0.
+        df = 0.
+        de = 0.
+
+        for p in self.peaksData:
+            com  = p[1] * self.gauss(e - x - p[0], f)
+            com2 = com * 2 * a * ( e-x-p[0] ) * 2.7726
+
+            da +=   com
+            df +=   com2 * (e-x-p[0]) / f**3
+            de += - com2 / f**2
+
+        return de, da, df
+
+    def _evs(self, tofIdx, offset):
+        ''' returns a cupy array corresponding to the energy labels of tof traces
+            for the given tof spectrometer (0 to 3) and offset'''
+        #Offset is split between the two opposing tofs, so that an offset of 16 steps
+        #Corresponds to a shift +8 and -8 for each tof. Odd shifts are mapped on the
+        #half-step scale
+
+        parity = offset % 2
+        offset = offset // 2
+        if tofIdx < 2:
+            offset = -offset
+
+        evSlice = cp.arange( self.ROIBounds.start, self.ROIBounds.stop) + offset
+        return self._energies[parity,evSlice]
+
+    def getOffsets(self, getXC = False):
+        '''
+        Calculate spatial offset of xray beam (in time samples) by looking at
+        the maximum of the cross correlation between couples of opposite tofs.
+        The offset values are then used to calibrate the tof to energy conversion
+        scale. '''
+
+        #Calulates cross correlation between each row of a and b
+        def xCorr(a, b):
+            return cp.fft.irfft( cp.fft.rfft(a) * cp.conj( cp.fft.rfft(b) ) )
+
+        #Cutout slice of crosscorrelation evaluation
+        #Only the first and last #maxOffsets values are retained
+        offsetSlice = cp.arange(self.maxOffset*2)
+        offsetSlice[self.maxOffset:] += self.traceTot - self.maxOffset*2
+
+        xc02 = xCorr(self.traces[0], self.traces[2]) [:,offsetSlice]
+        xc13 = xCorr(self.traces[1], self.traces[3]) [:,offsetSlice]
+
+        #offsets for tof couples 02 and 13
+        #maximum cross correlation is best overlap
+        self.of02 = xc02.argmax(axis=1)
+        self.of13 = xc13.argmax(axis=1)
+
+        #Offsets higher than maxOffset are actually negative offsets
+        #Lets shift them
+        self.of02[ self.of02 > self.maxOffset ] -= self.maxOffset*2
+        self.of13[ self.of13 > self.maxOffset ] -= self.maxOffset*2
+
+        if getXC:
+            return ( xc02.get(), xc13.get() )
+
+    def leastSquare(self, photoStart, ampliStart = 60, fwhmStart = 12):
+        #Load offsets first
+        if not hasattr(self, 'of02'):
+            self.getOffsets()
+
+        photoGuess = cp.ones((self.shotsNum, 1)) * photoStart
+        ampliGuess = cp.ones((self.shotsNum, 1)) * ampliStart
+        fwhmGuess  = cp.ones((self.shotsNum, 1)) * fwhmStart
+
+        for i in range(80):
+            evs = self._evs(0, self.of02.reshape(-1,1) )
+
+            fittedTraces = self.spectrumFit(evs, photoGuess, ampliGuess, fwhmGuess)
+            de, da, df  = self.spectrumGrad(evs, photoGuess, ampliGuess, fwhmGuess)
+
+            err = self.traces[0,:, self.traceSlice] - fittedTraces
+
+            #Boost amplitude gradient to increase amplitude convergence
+            photoGuess += self.fitSpeed.e * cp.einsum('ij,ij->i', de, err).reshape((-1,1))
+            ampliGuess += self.fitSpeed.a * cp.einsum('ij,ij->i', da, err).reshape((-1,1))
+            fwhmGuess  += self.fitSpeed.f * cp.einsum('ij,ij->i', df, err).reshape((-1,1))
+
+        self.fitResults = cp.hstack([photoGuess, ampliGuess, fwhmGuess]).get()
+        return self.fitResults
+
+    def ignoreMask(self, threshhold = None, getRaw=False):
+        '''Returns a mask for the shots. True me
+        ans a shot should be ignored'''
+        if threshhold is None: threshhold = self.ignoreThreshold
+
+        mask  = cp.any( self.integs < threshhold, axis=0 )
+        if getRaw:
+            return mask.get(), self.integs.T.get()
+        else:
+            return mask.get()
+
+    def plotFitted(self, traceIdx = 0, show=True):
+        if not hasattr(self, 'fitResults'):
+            raise Exception("No fit results. Use leastSquare first")
+
+        plt.figure()
+        tofs = self.traces[:,traceIdx, self.traceSlice]
+        fitEn, fitAmpli, fitFWHM  = self.fitResults[traceIdx]
+        #fitAmpli, fitEn = -60, 222
+        waterfall = 50
+
+        #Tofs 0 and 2
+        t0En = self._evs( 0, self.of02[traceIdx] ).get()
+        t2En = self._evs( 2, self.of02[traceIdx] ).get()
+
+        plt.plot(t0En, tofs[0].get())
+        plt.plot(t2En, tofs[2].get() )
+        plt.plot(t0En, self.spectrumFit(t0En, fitEn, fitAmpli, fitFWHM) )
+
+        #Tofs 1 and 3
+        t1En = self._evs(1, self.of13[traceIdx] ).get()
+        t3En = self._evs(3, self.of13[traceIdx] ).get()
+
+        plt.plot(t1En, tofs[1].get() + waterfall)
+        plt.plot(t3En, tofs[3].get() + waterfall)
+        plt.plot(t1En, self.spectrumFit(t1En, fitEn, fitAmpli, fitFWHM) + waterfall)
+
+        if show:
+            plt.show()
 
 class geometricEvConv:
     ''' Converts between tof and Ev for main chamber TOF spectrometer

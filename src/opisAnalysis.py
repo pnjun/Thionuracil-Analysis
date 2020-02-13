@@ -23,7 +23,7 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
                  },
         'plots':
                  {
-                    'traceID' : 40,
+                    'traceID' : 29,
                     'diffs'      : True,
                     'wlHist'     : False,
                     'ampliHist'  : False,
@@ -38,15 +38,11 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
                     'fittedTr'   : True,
                     'intAmpSc'   : False,
                     'AmpFhwmSc'   : False,
-                    'integAreaSc' : True
+                    'integAreaSc' : False
                  }
       }
 
 cfg = AttrDict(cfg)
-amplR = np.linspace(5, 60, 32)
-enerR = np.linspace(-5, 5, 32)
-#fwhmR = np.linspace(1,3,32)
-
 
 h5data  = pd.HDFStore(cfg.data.path + cfg.data.filename, mode = 'r')
 index   = pd.HDFStore(cfg.data.path + cfg.data.indexf, mode = 'r')
@@ -59,13 +55,50 @@ traces   = [ tofs[n] for n in range(4) ]
 #evConv = ou.geometricEvConv(170)
 evConv = ou.calibratedEvConv()
 GUESSEV = pulses.undulatorEV.iloc[0]
-enerR += GUESSEV
 
-fitter = ou.evFitter(ou.GAS_ID_AR)
-fitter.loadTraces(traces, evConv, GUESSEV)
-diffs = fitter.getOffsets(getDiffs=cfg.plots.diffs)
-#fit   = fitter.leastSquare3Params(amplR, enerR, fwhmR)
-fit   = fitter.leastSquare(amplR, enerR)
+if False:
+    amplR = np.linspace(5, 60, 20)
+    enerR = np.linspace(-5, 5, 16) + GUESSEV
+    fwhmR = np.linspace(1,3,8)
+
+    fitter = ou.evFitter(ou.GAS_ID_AR)
+    fitter.loadTraces(traces, evConv, GUESSEV)
+    diffs = fitter.getOffsets(getDiffs=cfg.plots.diffs)
+    fit   = fitter.leastSquare3Params(amplR, enerR, fwhmR)
+    #fit   = fitter.leastSquare(amplR, enerR)
+else:
+    tr = cfg.plots.traceID
+    GUESSEV = 215
+    fitter = ou.evFitter2ElectricBoogaloo(ou.GAS_ID_AR)
+    fitter.loadTraces(traces, evConv, GUESSEV)
+
+    '''
+    import cupy as cp
+    fft = cp.fft.rfft(fitter.traces[tr,0, :])
+    lowPass = 0
+    fft[-lowPass:] = (1-cp.arange(0,1,lowPass))
+    fitter.traces[tr,0, :] = cp.fft.irfft(fft, n=fitter.traceLen)
+    '''
+
+    diffs = fitter.getOffsets(getXC = cfg.plots.diffs)
+    fit   = fitter.leastSquare(GUESSEV)
+    print(fitter.of02[tr])
+
+    '''
+    ene = fitter._evs(0,0).get()
+    trace = fitter.traces[tr,0].get()
+
+    for f in fit:
+        plt.figure()
+        print(f[tr,0], f[tr,1], f[tr,2])
+        plt.plot(ene, trace)
+        plt.plot(ene, fitter.spectrumFit(ene, f[tr,0], f[tr,1], f[tr,2]))
+        plt.show()'''
+
+print(f'Trace fit results: {fit[cfg.plots.traceID]}')
+
+
+##########################################################
 
 if cfg.plots.diffs:
     plt.figure()
@@ -77,7 +110,6 @@ mask, rawm = fitter.ignoreMask(0,getRaw=True)
 fitm = fit.copy()
 fitm[mask] = np.NaN
 print(f'Trace integrals: {rawm[cfg.plots.traceID]}')
-print(f'Trace fit results: {fit[cfg.plots.traceID]}')
 
 def linFit(x, m, q):
     return x*m + q
