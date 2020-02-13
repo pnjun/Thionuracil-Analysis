@@ -4,6 +4,7 @@ import numpy as np
 from datetime import datetime
 from attrdict import AttrDict
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
 import sys
 import utils
 
@@ -14,7 +15,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'TrNexafsTest'
+                          'fname'    : 'TrNexafs2p'
                         },
            'time'     : { 'start' : datetime(2019,4,5,20,59,0).timestamp(),
                           'stop'  : datetime(2019,4,6,5,13,0).timestamp(),
@@ -24,7 +25,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (12,14)
                         },
-           'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
+           'sdfilter' : "GMD > 3.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 10,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
@@ -32,11 +33,11 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1261.7,   #Used to correct delays
-           'integROIeV'  : (125,150),
+           'integROIeV'  : (100,170),
            'decimate'    : False, #Decimate macrobunches before analizinintegROIeVg. Use for quick evalutation of large datasets
 
-           'plots' : {
-                       'trnexafs'    : True,
+           'plots' : {   'trnexafs'    : True,
+                         'traceDelay' : 1,     # Plots the NEXAFS traces for negative (earliest) vs positive delay (specified delay)
            },
            'writeOutput' : True, #Set to true to write out data in csv
            'onlyplot'    : False, #Set to true to load data form 'output' file and
@@ -142,6 +143,7 @@ if not cfg.onlyplot:
 
     #Create empty ouptut image image
     diffAcc  = np.zeros( ( len(energyBins),  len(delayBins)))
+    pumpAcc  = np.zeros( ( len(energyBins),  len(delayBins)))
     binCount = np.zeros( ( len(energyBins),  len(delayBins)))
 
     evConv = utils.mainTofEvConv(pulses.retarder.mean())
@@ -157,45 +159,73 @@ if not cfg.onlyplot:
                          np.abs(evs - cfg.integROIeV[0]).argmin() )
 
         #calculate difference spectra and integrate over photoline
-        shotsDiff = utils.getDiff(chunk, gmdData, integSlice=ROI)
+        shotsInteg, integDiff = utils.getInteg(chunk, ROI, gmd = gmdData, getDiff = True)
+
         #iterate over delay bins
         for delayIdx, delayBin in enumerate(delayBins):
             _, group = delayBin
             group = group.query(cfg.sdfilter)
-            delayBinIdx   = shotsDiff.index.intersection(group.index)
-            delayBinTrace = shotsDiff.reindex(delayBinIdx)
+            delayBinIdx   = integDiff.index.intersection(group.index)
+            diffDelayBinTrace = integDiff.reindex(delayBinIdx)
+            pumpDelayBinTrace = shotsInteg.reindex(delayBinIdx)
 
             #iterate over energy bins (note taht energy bins are just pulseIds)
             for energyIdx, energyBin in enumerate(energyBins):
                 _, energyGroup = energyBin
-                binTrace = delayBinTrace.query('pulseId in @energyGroup.index')
-                diffAcc[energyIdx, delayIdx] += binTrace.sum().to_numpy()
-                binCount[energyIdx, delayIdx] += binTrace.shape[0]
+                diffTrace = diffDelayBinTrace.query('pulseId in @energyGroup.index')
+                pumpTrace = pumpDelayBinTrace.query('pulseId in @energyGroup.index')
+                pumpAcc[energyIdx, delayIdx] += -pumpTrace.sum().to_numpy() # - sign is because signal is negative
+                diffAcc[energyIdx, delayIdx] += -diffTrace.sum().to_numpy()
+                binCount[energyIdx, delayIdx] += diffTrace.shape[0]
 
     idx.close()
     tr.close()
 
     diffAcc /= binCount
-    if uvEven > uvOdd: diffAcc *= -1
+    pumpAcc /= binCount
+    if uvOdd > uvEven: diffAcc *= -1
 
     if cfg.writeOutput:
         df = pd.DataFrame(data = diffAcc,columns=delays, index=energy).fillna(0)
-        df.to_csv(cfg.output.path + cfg.output.fname + ".csv", mode="w")
-
+        df.to_csv(cfg.output.path + cfg.output.fname + "_diff.csv", mode="w")
+        df = pd.DataFrame(data = pumpAcc,columns=delays, index=energy).fillna(0)
+        df.to_csv(cfg.output.path + cfg.output.fname + "_pump.csv", mode="w")
 
 if cfg.onlyplot:
-    df = pd.read_csv(cfg.output.path + cfg.output.fname + ".csv", index_col=0)
+    df = pd.read_csv(cfg.output.path + cfg.output.fname + "_diff.csv", index_col=0)
     diffAcc = df.to_numpy()
+    df = pd.read_csv(cfg.output.path + cfg.output.fname + "_pump.csv", index_col=0)
+    pumpAcc = df.to_numpy()
     delays = df.columns.to_numpy(dtype=np.float32)
     energy = df.index.to_numpy()
 
 if cfg.plots.trnexafs:
-    plt.figure(figsize=(9, 7))
-    plt.suptitle(f"Integrated signal {cfg.integROIeV[0]}:{cfg.integROIeV[1]} eV")
+    f = plt.figure(figsize=(9, 10))
+
+    if cfg.plots.traceDelay:
+        gs = gridspec.GridSpec(2, 1, height_ratios=[1, 2])
+        ax1 = f.add_subplot(gs[0])
+        delayIdx = np.abs(cfg.plots.traceDelay - delays).argmin()
+
+        #diff acc is created subtracting pump - unpumped. Therefore the umpumped is pump - diff
+        plt.plot(energy, pumpAcc[:,delayIdx] - diffAcc[:,delayIdx], label="UV Off")
+        plt.plot(energy, pumpAcc[:,delayIdx], label=f"UV On @ {delays[delayIdx]:.4}ps delay")
+        plt.ylabel(f"Integrated Auger")
+        plt.legend()
+        f.add_subplot(gs[1], sharex=ax1)
+        f.subplots_adjust(left=0.12, bottom=0.05, right=0.95, top=0.95, wspace=None, hspace=0.14)
+
+    eStep = energy[1] - energy[0]
+    yenergy = [e - eStep/2 for e in energy ] + [ energy[-1] + eStep/2 ]
+    xdelays = [d for d in delays]  + [ delays[-1] + (delays[-1] - delays[-2]) ] #Assume last bin is a wide as second to last
+
+    plt.suptitle(f"Integrated Auger Signal {cfg.integROIeV[0]}:{cfg.integROIeV[1]} eV")
     cmax = np.percentile(np.abs(diffAcc),99.5)
-    plt.pcolormesh(energy, delays, diffAcc.T,
+
+    plt.pcolormesh(yenergy,xdelays, diffAcc.T,
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Undulator Energy (eV)")
     plt.ylabel("Delay (ps)")
+    plt.colorbar(orientation="horizontal", fraction = 0.05 ,pad=0.1)
 
 plt.show()

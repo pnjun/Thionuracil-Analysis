@@ -11,18 +11,18 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'fisrt_block.h5'
+                          'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'DelayShort270ev'
+                          'fname'    : 'DelayCK2s'
                         },
-           'time'     : { 'start' : datetime(2019,3,27,4,28,0).timestamp(),
-                          'stop'  : datetime(2019,3,27,5,54,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,4,19,40,0).timestamp(),
+                          'stop'  : datetime(2019,4,4,20,4,0).timestamp(),
                         },
-           'filters'  : { 'undulatorEV' : (260.,280.),
-                          'retarder'    : (-90,-70),
+           'filters'  : { 'undulatorEV' : (245.,260.),
+                          'retarder'    : (-15,-5),
                           #'delay'       : (1170, 1185.0),
-                          'waveplate'   : (9,11)
+                          'waveplate'   : (35,45)
                         },
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
@@ -31,17 +31,17 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
-           'timeZero'    : 1178.4,   #Used to correct delays
+           'timeZero'    : 1260.5,   #Used to correct delays
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
            'plots' : {
                        'delay2d'    : True,
                        'photoShift' : False,
                        'valence'    : False,
-                       'auger2d'    : True,
-                       'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
+                       'auger2d'    : False,
+                       'fragmentSearch' : True, #Plot Auger trace at long delays to look for fragmentation
            },
-           'writeOutput' : True, #Set to true to write out data in csv
+           'writeOutput' : False, #Set to true to write out data in csv
            'onlyplot'    : False, #Set to true to load data form 'output' file and
                                  #plot only.
       }
@@ -197,7 +197,7 @@ if cfg.onlyplot:
 if cfg.plots.delay2d:
     ROI = slice(np.abs(evs - 270).argmin() , None)
     plt.figure(figsize=(9, 7))
-    plt.suptitle("Kinetic Energy vs Delay. Photon Energy 270eV")
+    plt.suptitle("Kinetic Energy vs Delay.")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
     plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
                    cmap='bwr', vmax=cmax, vmin=-cmax)
@@ -207,7 +207,7 @@ if cfg.plots.delay2d:
 if cfg.plots.auger2d:
     ROI = slice(np.abs(evs - 160).argmin() , np.abs(evs - 120).argmin())
     plt.figure(figsize=(9, 7))
-    plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270eV")
+    plt.suptitle("Auger Kinetic Energy vs Delay.")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
     plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
                    cmap='bwr', vmax=cmax, vmin=-cmax)

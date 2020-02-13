@@ -12,16 +12,16 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'second_block.h5'
-                          #'trace'    : 'fisrt_block.h5'
+                          #'trace'    : 'second_block.h5'
+                          'trace'    : 'fisrt_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'uvPowerScan_ResonantQuantile15'
+                          'fname'    : 'uvPowerScan_NonResonantConstant1000'
                         },
-           'time'     : { 'start' : datetime(2019,3,31,16,12,0).timestamp(),
-                          'stop'  : datetime(2019,3,31,16,28,0).timestamp(),
-                          #'start' : datetime(2019,3,26,4,54,0).timestamp(),
-                          #'stop'  : datetime(2019,3,26,5,0,0).timestamp(),
+           'time'     : { #'start' : datetime(2019,3,31,16,12,0).timestamp(),
+                          #'stop'  : datetime(2019,3,31,16,28,0).timestamp(),
+                          'start' : datetime(2019,3,26,4,42,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,5,0,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (210,275),
                           'retarder'    : (-85,10),
@@ -29,9 +29,9 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'waveplate'   : (0,50)
                         },
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
-           'uvBin_mode'  : 'QUANTILE', # Binning mode, must be one QUANTILE, CONSTANT
+           'uvBin_mode'  : 'CONSTANT', # Binning mode, must be one QUANTILE, CONSTANT
            'uvBinStep'   : 1000, # Size of bins, only relevant when uvBin_mode is CONSTANT
-           'uvBinNum'    : 15,  # Number if bis to use, only relevant when uvBin_mode is QUANTILE
+           'uvBinNum'    : 25,  # Number if bis to use, only relevant when uvBin_mode is QUANTILE
            'ioChunkSize' : 20000,
            'gmdNormalize': True,
            'lowPass'     : None,
