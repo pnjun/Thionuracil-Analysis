@@ -23,16 +23,16 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
                  },
         'plots':
                  {
-                    'traceID' : 29,
-                    'diffs'      : True,
+                    'traceID' : 42,
+                    'diffs'      : False,
                     'wlHist'     : False,
                     'ampliHist'  : False,
                     'integHist'  : False,
                     'fwhmHist'   : False,
                     'mask'       : False,
-                    'wlTrend'    : False,
-                    'ampliTrend' : False,
-                    'fwhmTrend'  : False,
+                    'wlTrend'    : True,
+                    'ampliTrend' : True,
+                    'fwhmTrend'  : True,
                     'integTrend' : False,
                     'rawTraces'  : False,
                     'fittedTr'   : True,
@@ -67,33 +67,12 @@ if False:
     fit   = fitter.leastSquare3Params(amplR, enerR, fwhmR)
     #fit   = fitter.leastSquare(amplR, enerR)
 else:
-    tr = cfg.plots.traceID
-    GUESSEV = 215
-    fitter = ou.evFitter2ElectricBoogaloo(ou.GAS_ID_AR)
-    fitter.loadTraces(traces, evConv, GUESSEV)
+    fitter = ou.evFitter2ElectricBoogaloo(ou.GAS_ID_AR,
+                     evConv, traces[0].columns, GUESSEV)
 
-    '''
-    import cupy as cp
-    fft = cp.fft.rfft(fitter.traces[tr,0, :])
-    lowPass = 0
-    fft[-lowPass:] = (1-cp.arange(0,1,lowPass))
-    fitter.traces[tr,0, :] = cp.fft.irfft(fft, n=fitter.traceLen)
-    '''
-
+    fitter.loadTraces(traces)
     diffs = fitter.getOffsets(getXC = cfg.plots.diffs)
     fit   = fitter.leastSquare(GUESSEV)
-    print(fitter.of02[tr])
-
-    '''
-    ene = fitter._evs(0,0).get()
-    trace = fitter.traces[tr,0].get()
-
-    for f in fit:
-        plt.figure()
-        print(f[tr,0], f[tr,1], f[tr,2])
-        plt.plot(ene, trace)
-        plt.plot(ene, fitter.spectrumFit(ene, f[tr,0], f[tr,1], f[tr,2]))
-        plt.show()'''
 
 print(f'Trace fit results: {fit[cfg.plots.traceID]}')
 
@@ -106,7 +85,7 @@ if cfg.plots.diffs:
     plt.plot(diffs[1][cfg.plots.traceID])
 
 #invalidate low signal shots
-mask, rawm = fitter.ignoreMask(0,getRaw=True)
+mask, rawm = fitter.ignoreMask(getRaw=True)
 fitm = fit.copy()
 fitm[mask] = np.NaN
 print(f'Trace integrals: {rawm[cfg.plots.traceID]}')
@@ -179,8 +158,8 @@ if cfg.plots.wlTrend:
     plt.plot(fitm[:,0])
 if cfg.plots.ampliTrend:
     plt.figure('AMPLI')
-    plt.plot(-fit[:,1])
-    plt.plot(-fitm[:,1])
+    plt.plot(fit[:,1])
+    plt.plot(fitm[:,1])
 if cfg.plots.fwhmTrend:
     plt.figure('FWHM')
     plt.plot(fit[:,2])
