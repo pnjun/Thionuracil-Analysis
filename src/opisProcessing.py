@@ -37,8 +37,8 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
            'output'   : {
                           'folder' : '/media/Fast2/ThioUr/processed/',
                           'fname'  :  'second_block.h5',
-                          #'start' : datetime(2019,3,30,22,40,0).timestamp(),
-                          #'stop'  : datetime(2019,3,30,22,45,0).timestamp(),
+                          'start' : datetime(2019,3,30,20,16,0).timestamp(),
+                          'stop'  : datetime(2019,3,30,21,1,0).timestamp(),
                         },
            'hdf'      : { 'opisTr0'    : PREFIX + 'Raw data/CH00',
                           'opisTr1'    : PREFIX + 'Raw data/CH01',
@@ -71,7 +71,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                           'window'   : 1700, 'skipNum'  : 250,
                           'dt'       : 0.00014, 'shotsNum' : 49,
                         },
-           'chunkSize': 1200, #How many macrobunches to read/write at a time. Increasing increases RAM usage
+           'chunkSize': 2400, #How many macrobunches to read/write at a time. Increasing increases RAM usage
 
            'ampliRange': np.linspace(5, 80, 12),
            'enerRange' : np.linspace(-3, 7, 32)
@@ -150,7 +150,7 @@ for fname in flist:
                 print(f"skipping chunk, Retarder {pulses[sl].ret0.mean()}")
                 continue
             #TODO: ADAPT evConv to retarder setting for now only 170V
-            evConv = ou.calibratedEvConv()
+            evConv = ou.geometricEvConv(170)
 
             shots0 = opisSlicer0( dataf[cfg.hdf.opisTr0][sl], pulses[sl])
             shots1 = opisSlicer1( dataf[cfg.hdf.opisTr1][sl], pulses[sl])
@@ -158,11 +158,13 @@ for fname in flist:
             shots3 = opisSlicer3( dataf[cfg.hdf.opisTr3][sl], pulses[sl])
             traces = [shots0, shots1, shots2, shots3]
 
-            fitter = ou.evFitter(pulses[sl].gasID.iloc[0])
+            fitter = ou.evFitter2ElectricBoogaloo(pulses[sl].gasID.iloc[0],
+                                                  evConv,traces[0].columns,
+                                                  pulses.undulEV.mean())
+
             def fitTraces(traces, evGuess):
-                fitter.loadTraces(traces, evConv, evGuess)
-                fitter.getOffsets()
-                fit = fitter.leastSquare(cfg.ampliRange, cfg.enerRange + evGuess)
+                fitter.loadTraces(traces)
+                fit = fitter.leastSquare(evGuess)
 
                 fitDf = pd.DataFrame(fit, index = traces[0].index,
                                          columns=['ev', 'ampli', 'fwhm'])

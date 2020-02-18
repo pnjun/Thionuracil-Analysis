@@ -7,6 +7,7 @@ from attrdict import AttrDict
 from scipy.optimize import curve_fit
 
 import sys
+from time import time
 import opisUtils as ou
 from utils import h5load
 
@@ -19,11 +20,11 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
         'time' : { #'start' :datetime(2019,3,31,8,25,0).timestamp(),
                    #'stop'  :datetime(2019,3,31,8,25,10).timestamp(),
                    'start' : datetime(2019,4,1,3,10,0).timestamp(),
-                   'stop'  : datetime(2019,4,1,3,10,2).timestamp(),
+                   'stop'  : datetime(2019,4,1,3,10,20).timestamp(),
                  },
         'plots':
                  {
-                    'traceID' : 42,
+                    'traceID' : 5,
                     'diffs'      : False,
                     'wlHist'     : False,
                     'ampliHist'  : False,
@@ -36,7 +37,7 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
                     'integTrend' : False,
                     'rawTraces'  : False,
                     'fittedTr'   : True,
-                    'intAmpSc'   : False,
+                    'intAmpSc'   : True,
                     'AmpFhwmSc'   : False,
                     'integAreaSc' : False
                  }
@@ -71,8 +72,10 @@ else:
                      evConv, traces[0].columns, GUESSEV)
 
     fitter.loadTraces(traces)
-    diffs = fitter.getOffsets(getXC = cfg.plots.diffs)
+    #diffs = fitter.getOffsets(getXC = cfg.plots.diffs)
+    t = time()
     fit   = fitter.leastSquare(GUESSEV)
+    print(f'time to fit {time() - t}s')
 
 print(f'Trace fit results: {fit[cfg.plots.traceID]}')
 
@@ -96,8 +99,11 @@ def linFit(x, m, q):
 if cfg.plots.intAmpSc:
     plt.figure('intAmpSc')
     integ = rawm.sum(axis=1)
-    plt.plot(integ, -fit[:,1], 'o')
-    print(f'Integral-Amplitude Pearson: {np.corrcoef(integ, -fit[:,1])[0,1]}')
+    popt, pconv = curve_fit(linFit, integ, fit[:,1])
+    plt.plot(integ, fit[:,1], 'o')
+    plt.plot(integ, linFit(integ, *popt))
+    print(f'Fit results {popt}')
+    print(f'Integral-Amplitude Pearson: {np.corrcoef(integ, fit[:,1])[0,1]}')
 
 if cfg.plots.AmpFhwmSc:
     plt.figure('AmpFhwmSc')

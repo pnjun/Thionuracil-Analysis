@@ -12,16 +12,19 @@ import utils
 import pickle
 
 cfg = { 'data' : { 'path'     : '/media/Fast2/ThioUr/processed/',
-                   'filename' : 'trOpistest2019-03-30T2100.h5',
+                   'filename' : 'second_block.h5',
                    'indexf'   : 'index.h5'
                  },
-        'time' : { 'start' : datetime(2019,3,30,22,0,20).timestamp(),
-                   'stop'  : datetime(2019,3,30,22,1,20).timestamp(),
+        'time' : { 'start' : datetime(2019,3,30,20,40,20).timestamp(),
+                   'stop'  : datetime(2019,3,30,20,41,20).timestamp(),
                  },
 
         'averageShots'  : False,
         'ignoreMask'    : True,
         'photoline'     : 171,
+
+        'decimate'    : False, #Decimate macrobunches before
+
         'plots':
                  {
                     'tracePlot'     : None,
@@ -39,6 +42,10 @@ index   = pd.HDFStore(cfg.data.path + cfg.data.indexf, mode = 'r')
 
 pulses = index.select('pulses',
                       where='time >= cfg.time.start and time < cfg.time.stop')
+
+if cfg.decimate:
+    print("Decimating...")
+    pulses = pulses.query('index % 10 == 0')
 
 opisData  = utils.h5load('opisFit' , h5data, pulses)
 shotsTof  = utils.h5load('shotsTof', h5data, pulses)

@@ -23,7 +23,7 @@ class evFitter2ElectricBoogaloo:
         self.ignoreThreshold = 40. #minimum integral for a shot to be considered valid
 
         #                          energy    amlpi    fwhm
-        self.fitSpeed = cp.array([[0.00006, 0.0006, 0.0006]]).T
+        self.fitSpeed = cp.array([[0.00006, 0.00006, 0.00002]]).T
 
         #Parameters of a peak for fitting: energy and relative amplitude
         if gasID == GAS_ID_AR:
@@ -75,6 +75,17 @@ class evFitter2ElectricBoogaloo:
             self._energies[n,0,:] = cp.array(evConv[n](cols))
             self._energies[n,1,:] = cp.array(evConv[n](cols2))
 
+        '''
+        #Rough weights for fitting (jacobian of ev to tof conversion)
+        wBase = baseEn[self.ROIBounds]
+        self.weights =  cp.diff(wBase, append=wBase[-2])**2
+        self.weights = self.traceLen - cp.arange(self.traceLen,dtype=cp.float32)
+        self.weights *= self.traceLen / cp.linalg.norm(self.weights)
+
+        plt.plot(self.weights.get())
+        plt.show()
+        #self.weights = cp.ones(self.traceLen)'''
+
     def loadTraces(self, data):
         ''' Loads Tof traces and corresponding energy axis to
             the GPU memory. Each array is sliced so that only
@@ -82,6 +93,12 @@ class evFitter2ElectricBoogaloo:
         assert(data[0].shape == data[1].shape )
         assert(data[0].shape == data[2].shape )
         assert(data[0].shape == data[2].shape )
+
+        if hasattr(self, 'of02'):
+            del self.of02
+            del self.of13
+        if hasattr(self, 'fitResults'):
+            del self.fitResults
 
         self.shotsNum = data[0].shape[0]
 
@@ -149,6 +166,7 @@ class evFitter2ElectricBoogaloo:
     def gauss(x, fwhm):
         ''' Gaussian fitting function (helper)'''
         xp = cp.get_array_module(x)
+        #xp=cp
         return xp.exp( - 2.7726* x**2/fwhm**2)
 
     #Generates a fit spectrum by linear combination of gaussians
@@ -183,6 +201,18 @@ class evFitter2ElectricBoogaloo:
 
         return grad
 
+    #Use integ-ampli correlations to init amplitude for better
+    #initial fit guess
+    def _getAmplies(self):
+        return self.integs.sum(axis=0)*0.005067 + 47
+
+    #returns Array of fitspeeds to optimize gradient descent
+    #starts fast and slows down. Max runs is the total number
+    #of fit iterations we will be doing
+    def fitScaling(self, maxRuns):
+        x = np.arange(maxRuns)
+        return np.power( ( 1 - x/maxRuns ), 1.2 )
+
     def leastSquare(self, photoStart, ampliStart = 60, fwhmStart = 12):
         #Load offsets first
         if not hasattr(self, 'of02'):
@@ -191,21 +221,34 @@ class evFitter2ElectricBoogaloo:
         #Create maxtx of fit parameters guess and Initialize
         fitGuess = cp.ones((3, self.shotsNum))
         fitGuess[0] *= photoStart
-        fitGuess[1] *= ampliStart
+        fitGuess[1] *= ampliStart # self._getAmplies()
         fitGuess[2] *= fwhmStart
 
-        for i in range(80):
+        #k varies the gradient descent speed gradually as fit progresses
+        runspeeds = self.fitScaling(40)
+        for k in runspeeds:
             for tofIdx in range(4):
                 evs = self._evs(tofIdx, self.of02.reshape(-1,1) )
 
                 #Calculate tentative fit and gradient for current step
-                fittedTraces = self.spectrumFit(evs, fitGuess[0], fitGuess[1], fitGuess[2])
-                gradient    = self.spectrumGrad(evs, fitGuess[0], fitGuess[1], fitGuess[2])
+                fittedTraces = self.spectrumFit(evs, fitGuess[0],
+                                                fitGuess[1], fitGuess[2])
+                gradient    = self.spectrumGrad(evs, fitGuess[0],
+                                                fitGuess[1], fitGuess[2])
                 # (data - fit) for the current step
                 err = self.traces[tofIdx,:, self.traceSlice] - fittedTraces
+                #print(f"{float(err.sum()):.4E}")
 
                 #Right hand side of the Levenberg-Marquardt update equation
-                fitGuess += self.fitSpeed*cp.einsum('kij,ij->ki', gradient, err)
+                #(basically gradient descent)
+                #(p = gradient param(e,a,f), s = shotnumber, j = shotarray idx)
+                vect = cp.einsum('psj,sj->ps', gradient, err)
+
+                if True: #Gradient descent only
+                    fitGuess += k*self.fitSpeed*vect
+                else:    #Left hand matrix of Levenberg-Marquardt (not working)
+                    mat  = cp.einsum('psj,qsj->spq', gradient, gradient)
+                    fitGuess += cp.linalg.solve(mat,vect.T).T
 
         self.fitResults = fitGuess.T.get()
         return self.fitResults
@@ -250,17 +293,21 @@ class evFitter2ElectricBoogaloo:
         if show:
             plt.show()
 
+GEOMOD_ORIG = 0
+GEOMOD_FIT  = 1
 class geometricEvConv:
     ''' Converts between tof and Ev for main chamber TOF spectrometer
         Usage:
         converter = mainTofEvConv(retarder)
         energy = converter(tof)
-        Uses geometric model, retardationis currently fixed to 100V
+        Uses geometric model, good for any retardation.
+        Support offsetted beam starting position
     '''
-    def __init__(self, retarder):
+    def __init__(self, retarder, model=GEOMOD_FIT):
         self.r = retarder
+        self.model = model
 
-        evMin = self.r + 1
+        evMin = self.r + 5
         evMax = self.r + 400
 
         evRange = np.arange(evMin, evMax, 1)
@@ -276,34 +323,56 @@ class geometricEvConv:
             return self.interpolators[channel](tof)
         return foo
 
-    def ev2tof(self, n ,e):
+    def ev2tof(self, n, e, offset=0):
         #Parameters for evConversion
         VMPec = [-234.2, -189.4, -323.1, -324.2 ]
-        l = [0.0350,  0.0150,  0.0636,  0.1884,  0.0072]
+
+        if self.model == GEOMOD_ORIG:
+            l      =  [0.0350,  0.0150,  0.0636,  0.1884,  0.0072]
+        if self.model == GEOMOD_FIT:
+            #l      =  [0.0350,  0.0150,  0.0636,  0.1884,  0.0072]
+            lList  = [[0.0100,  0.0669,  0.0387,  0.1836,  0.0032],
+                      [0.0201,  0.0483,  0.0369,  0.1958,  0.0000],
+                      [0.0126,  0.0747,  0.0254,  0.1889,  0.0000],
+                      [0.0319,  0.0178,  0.0625,  0.1891,  0.0000]]
+            l = lList[n]
+
         r = [0.0   ,  self.r*0.64  ,  self.r*0.84  , self.r ,  VMPec[n] ]
         m_over_2e = 5.69 / 2
 
-        evOffset = -(n % 2)/2 # <--------------- CAREFUL HERE
-        new_e = e - evOffset
+        if offset != 0:
+            speed = 1 / np.sqrt( m_over_2e * e )
+            oflen = speed*offset
+            l[0] += oflen
 
-        a = [  lt / np.sqrt(new_e - rt) for lt,rt in zip(l,r) ]
+        a = [  lt / np.sqrt(e - rt) for lt,rt in zip(l,r) ]
         return np.sqrt(m_over_2e) * np.array(a).sum(axis=0)
 
+CONVCAL_170 = 0
+CONVCAL_50  = 1
 class calibratedEvConv:
     ''' Converts between tof and Ev for tunnel OPIS TOF spectrometers
         Usage:
         converter = opisEvConv()
         energy = converter[channel](tof)
-        Uses fixed calibration, retardation voltage is 170V
+        Uses fixed calibration, retardation voltage is 170V by default.
+        50V calibration is also available
     '''
-    def __init__(self):
+    def __init__(self, retarder=CONVCAL_170):
         evMax = 400
 
-        self.params = np.array(
-                 [[ 1.87851827E+002, -1.71740614E+002, 1.68133279E+004, -1.23094641E+002, 1.85483300E+001 ],
-                  [ 3.03846564E+002, -1.69947313E+002, 1.62788476E+004, -8.80818471E+001, 9.88444848E+000 ],
-                  [ 2.13931606E+002, -1.71492500E+002, 1.61927408E+004, -1.18796787E+002, 1.66342468E+001 ],
-                  [ 2.90336251E+002, -1.69942322E+002, 1.44589453E+004, -1.00972976E+002, 1.10047737E+001 ]])
+        if retarder == CONVCAL_170:
+            self.params = np.array(
+                     [[ 1.87851827E+002, -1.71740614E+002, 1.68133279E+004, -1.23094641E+002, 1.85483300E+001 ],
+                      [ 3.03846564E+002, -1.69947313E+002, 1.62788476E+004, -8.80818471E+001, 9.88444848E+000 ],
+                      [ 2.13931606E+002, -1.71492500E+002, 1.61927408E+004, -1.18796787E+002, 1.66342468E+001 ],
+                      [ 2.90336251E+002, -1.69942322E+002, 1.44589453E+004, -1.00972976E+002, 1.10047737E+001 ]])
+        elif retarder == CONVCAL_50:
+            self.params = np.array(
+                     [[ 5.00183855E+002, -4.91666785E+001, -9.90751869E+002, -4.39604765E+001, 3.54472925E-001 ],
+                      [ 5.02980410E+002, -4.91187687E+001, -1.14618607E+003, -4.26486644E+001, 3.74999760E-001 ],
+                      [ 4.90055807E+002, -4.93575929E+001, -8.11116351E+002, -4.50071273E+001, 1.22069709E+000 ],
+                      [ 4.94425840E+002, -4.91851405E+001, -9.13485266E+002, -4.43022750E+001, 8.23979888E-001 ]])
 
         # generate ev ranges for each channel depeding on their retarder setting
         # (retarder is second column of params )
