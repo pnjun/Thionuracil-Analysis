@@ -228,7 +228,10 @@ class evFitter2ElectricBoogaloo:
         runspeeds = self.fitScaling(40)
         for k in runspeeds:
             for tofIdx in range(4):
-                evs = self._evs(tofIdx, self.of02.reshape(-1,1) )
+                if tofIdx % 2 == 0:
+                    evs = self._evs(tofIdx, self.of02.reshape(-1,1) )
+                else:
+                    evs = self._evs(tofIdx, self.of13.reshape(-1,1) )
 
                 #Calculate tentative fit and gradient for current step
                 fittedTraces = self.spectrumFit(evs, fitGuess[0],
@@ -307,20 +310,20 @@ class geometricEvConv:
         self.r = retarder
         self.model = model
 
-        evMin = self.r + 1
-        evMax = self.r + 400
+        self.evMin = self.r + 1
+        self.evMax = self.r + 300
 
-        evRange = np.arange(evMin, evMax, 1)
-        tofVals  = [ self.ev2tof( n, evRange ) for n in range(4) ]
-        self.interpolators = [ interpolate.interp1d(tof, evRange,
-                                                    kind='linear') \
-                               for tof in tofVals ]
+        self.evRange = np.arange(self.evMin, self.evMax, 1)
 
     def __getitem__(self, channel):
-        def foo(tof):
+        def foo(tof, offset=0):
             if isinstance(tof, pd.Index):
                 tof = tof.to_numpy(dtype=np.float32)
-            return self.interpolators[channel](tof)
+
+            tofVals  = self.ev2tof( channel, self.evRange, offset )
+            interpolator = interpolate.interp1d(tofVals, self.evRange,
+                                                kind='linear')
+            return interpolator(tof)
         return foo
 
     def ev2tof(self, n, e, offset=0):
@@ -341,7 +344,7 @@ class geometricEvConv:
         m_over_2e = 5.69 / 2
 
         if offset != 0:
-            speed = 1 / np.sqrt( m_over_2e * e )
+            speed = np.sqrt( e / m_over_2e )
             oflen = speed*offset
             l[0] += oflen
 
