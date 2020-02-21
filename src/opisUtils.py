@@ -307,7 +307,7 @@ class geometricEvConv:
         self.r = retarder
         self.model = model
 
-        evMin = self.r + 5
+        evMin = self.r + 1
         evMax = self.r + 400
 
         evRange = np.arange(evMin, evMax, 1)
