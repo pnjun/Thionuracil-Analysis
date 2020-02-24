@@ -37,8 +37,8 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
            'output'   : {
                           'folder' : '/media/Fast2/ThioUr/processed/',
                           'fname'  :  'second_block.h5',
-                          'start' : datetime(2019,3,30,20,39,0).timestamp(),
-                          'stop'  : datetime(2019,3,30,20,45,0).timestamp(),
+                          'start' : datetime(2019,3,30,20,40,1).timestamp(),
+                          'stop'  : datetime(2019,3,30,20,42,0).timestamp(),
                         },
            'hdf'      : { 'opisTr0'    : PREFIX + 'Raw data/CH00',
                           'opisTr1'    : PREFIX + 'Raw data/CH01',
@@ -150,7 +150,8 @@ for fname in flist:
                 print(f"skipping chunk, Retarder {pulses[sl].ret0.mean()}")
                 continue
             #TODO: ADAPT evConv to retarder setting for now only 170V
-            evConv = ou.geometricEvConv(170)
+            evConv = ou.geometricEvConv(170, ou.GEOMOD_ORIG)
+            #evConv = ou.calibratedEvConv()
 
             shots0 = opisSlicer0( dataf[cfg.hdf.opisTr0][sl], pulses[sl])
             shots1 = opisSlicer1( dataf[cfg.hdf.opisTr1][sl], pulses[sl])

@@ -17,6 +17,7 @@ from scipy import interpolate
 from time import time
 
 GAS_ID_AR = 0
+OLD_OFFSET = True
 
 class evFitter2ElectricBoogaloo:
     def __init__(self, gasID, evConv, tofList, evGuess):
@@ -48,15 +49,18 @@ class evFitter2ElectricBoogaloo:
         s = np.abs( baseEn - (evGuess - self.evCuts[0] )).argmin()
         e = np.abs( baseEn - (evGuess - self.evCuts[1] )).argmin()
 
-        #TODO: fix ev generation so that roi all the way down to 0 can be used
         self.ROIBounds = slice(s,e)
-        if self.ROIBounds.start - self.maxOffset < 0:
-            warnings.warn("Not enough data to cover ROI (low energy)")
-            self.ROIBounds = slice(self.maxOffset,self.ROIBounds.stop)
 
-        if self.ROIBounds.stop + self.maxOffset > tofList.shape[0]:
-            warnings.warn("Not enough data to cover ROI (high energy)")
-            self.ROIBounds = slice(self.ROIBounds.start,-self.maxOffset)
+        if OLD_OFFSET:
+            if self.ROIBounds.start - self.maxOffset < 0:
+                print("Not enough data to cover ROI (low energy)")
+                self.ROIBounds = slice(self.maxOffset,self.ROIBounds.stop)
+
+            if self.ROIBounds.stop + self.maxOffset > tofList.shape[0]:
+                print("Not enough data to cover ROI (high energy)")
+                self.ROIBounds = slice(self.ROIBounds.start,-self.maxOffset)
+        else:
+            print("USING NEW OFFSET CORRECTION")
 
         #Lenght of actual data in each trace
         self.traceLen = tofList[self.ROIBounds].shape[0]
@@ -67,13 +71,26 @@ class evFitter2ElectricBoogaloo:
         #Slice corresponding to real data in padded trace
         self.traceSlice = slice(tracePad , tracePad + self.traceLen)
 
-        #Init ev converters
-        cols = tofList.to_numpy(dtype=np.float32)
-        cols2 = cols + (cols[1] - cols[0])/2
-        self._energies = cp.zeros((4,2,tofList.shape[0]))
-        for n in range(4):
-            self._energies[n,0,:] = cp.array(evConv[n](cols))
-            self._energies[n,1,:] = cp.array(evConv[n](cols2))
+        if OLD_OFFSET:
+            #Init ev converters
+            cols = tofList.to_numpy(dtype=np.float32)
+            cols2 = cols + (cols[1] - cols[0])/2
+            self._energies_old = cp.zeros((4,2,tofList.shape[0]))
+            for n in range(4):
+                self._energies_old[n,0,:] = cp.array(evConv[n](cols))
+                self._energies_old[n,1,:] = cp.array(evConv[n](cols2))
+        else:
+            tofs = tofList[self.ROIBounds].to_numpy(dtype=np.float32)
+            dt   = tofs[1] - tofs[0]
+            self._energies = cp.empty((4,2*self.maxOffset,self.traceLen))
+            for n in range(4):
+                for off in range(-self.maxOffset, self.maxOffset):
+                    #time offset it off*dt / 2 because we split the total
+                    #offset in equal parts between the oppoising spectromenters
+                    #That is, an offset of 32 samples corresponds to
+                    #+16 / -16 time steps from each spectrometer
+                    ener = cp.array(evConv[n](tofs, offset=off*dt/2))
+                    self._energies[n, off] = ener
 
         '''
         #Rough weights for fitting (jacobian of ev to tof conversion)
@@ -117,18 +134,22 @@ class evFitter2ElectricBoogaloo:
     def _evs(self, tofIdx, offset):
         ''' returns a cupy array corresponding to the energy labels of tof traces
             for the given tof spectrometer (0 to 3) and offset'''
-        #Offset is split between the two opposing tofs, so that an offset of 16 steps
-        #Corresponds to a shift +8 and -8 for each tof. Odd shifts are mapped on the
-        #half-step scale
 
-        parity = offset % 2
-        offset = offset // 2
+        if OLD_OFFSET:
+            if offset.size > 1:
+                offset = offset.reshape(-1,1)
 
-        if tofIdx < 2:
-            offset *= -1 #Flip the offset sign for tofIdx 2 and 3
+            parity = offset % 2
+            offset = offset // 2
 
-        evSlice = cp.arange( self.ROIBounds.start, self.ROIBounds.stop) + offset
-        return self._energies[tofIdx, parity, evSlice]
+            if tofIdx < 2:
+                offset *= -1 #Flip the offset sign for tofIdx 2 and 3
+
+            evSlice = cp.arange( self.ROIBounds.start, self.ROIBounds.stop) + offset
+            return self._energies_old[tofIdx, parity, evSlice]
+        else:
+            if tofIdx > 2: offset = -offset
+            return self._energies[tofIdx, offset]
 
     def getOffsets(self, getXC = False):
         '''
@@ -229,9 +250,9 @@ class evFitter2ElectricBoogaloo:
         for k in runspeeds:
             for tofIdx in range(4):
                 if tofIdx % 2 == 0:
-                    evs = self._evs(tofIdx, self.of02.reshape(-1,1) )
+                    evs = self._evs(tofIdx, self.of02 )
                 else:
-                    evs = self._evs(tofIdx, self.of13.reshape(-1,1) )
+                    evs = self._evs(tofIdx, self.of13 )
 
                 #Calculate tentative fit and gradient for current step
                 fittedTraces = self.spectrumFit(evs, fitGuess[0],

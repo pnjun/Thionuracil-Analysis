@@ -29,8 +29,8 @@ cfg = { 'data' : { 'path'     : '/media/Fast2/ThioUr/processed/',
                  {
                     'tracePlot'     : None,
                     'ampliGMDsc'    : True,
-                    'evPhotosc'     : False,
-                    'evPhotoShotbyShot' : True,
+                    'evPhotosc'     : True,
+                    'evPhotoShotbyShot' : False,
                     'traceMax'      : 21
                  }
       }
