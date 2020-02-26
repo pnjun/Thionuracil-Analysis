@@ -12,26 +12,28 @@ import utils
 import pickle
 
 cfg = { 'data' : { 'path'     : '/media/Fast2/ThioUr/processed/',
-                   'filename' : 'second_block.h5',
-                   'indexf'   : 'index.h5'
+                   'filename' : 'trOpistest2019-03-30T1900.h5',
+                   'indexf'   : 'idOpistest2019-03-30T1900.h5'
                  },
-        'time' : { 'start' : datetime(2019,3,30,20,40,20).timestamp(),
-                   'stop'  : datetime(2019,3,30,20,41,20).timestamp(),
+        'time' : { 'start' : datetime(2019,3,30,20,34,2).timestamp(),
+                   'stop'  : datetime(2019,3,30,20,38,59).timestamp(),
                  },
 
-        'averageShots'  : False,
+        'averageShots'  : True,
+
         'ignoreMask'    : True,
         'photoline'     : 171,
+        'resortOpis'    : True, #Rescale opis energy subtracting undulator setting
 
         'decimate'    : False, #Decimate macrobunches before
 
         'plots':
                  {
                     'tracePlot'     : None,
-                    'ampliGMDsc'    : True,
+                    'ampliGMDsc'    : None,
                     'evPhotosc'     : True,
-                    'evPhotoShotbyShot' : False,
-                    'traceMax'      : 21
+                    'evPhotoShotbyShot' : True,
+                    'traceMax'      : None
                  }
       }
 
@@ -42,6 +44,8 @@ index   = pd.HDFStore(cfg.data.path + cfg.data.indexf, mode = 'r')
 
 pulses = index.select('pulses',
                       where='time >= cfg.time.start and time < cfg.time.stop')
+
+print(pulses.undulatorEV.unique())
 
 if cfg.decimate:
     print("Decimating...")
@@ -55,6 +59,10 @@ shotsData = utils.h5load('shotsData', h5data, pulses)
 #opisData = opisData.query('ampli > 35 and ampli < 60')
 #opisData = opisData.query('shotNum % 2 == 0')
 
+opisEv = opisData.ev.mean()
+if cfg.resortOpis:
+    opisData.query('shotNum < 48')
+    opisData.ev = -utils.shotsDelay(pulses.undulatorEV, opisData.ev)
 
 if cfg.ignoreMask:
     opisData = opisData.query('ignoreMask == False')
@@ -69,6 +77,9 @@ shotsData = shotsData.query('index in @opisData.index')
 evConv = utils.mainTofEvConv(pulses.retarder.mean())
 evs = evConv(shotsTof.columns)
 
+def gauss(x, ampli, center, fwhm):
+    return ampli*np.exp( - 4*np.log(2.)*(x-center)**2/fwhm**2)
+
 if cfg.plots.ampliGMDsc:
     if cfg.averageShots:
         ampli  = opisData.ampli.mean(level=1)
@@ -82,7 +93,6 @@ if cfg.plots.ampliGMDsc:
     print(f'GMD-Ampli Pearson: {np.corrcoef(ampli, gmd)[0,1]}')
 
 if cfg.plots.evPhotosc or cfg.plots.evPhotoShotbyShot:
-    opisEv = opisData.ev.mean()
     photoStart = opisEv - cfg.photoline - 7
     photoEnd   = opisEv - cfg.photoline + 7
     photoline = slice(np.abs(evs - photoEnd).argmin() ,
@@ -90,6 +100,13 @@ if cfg.plots.evPhotosc or cfg.plots.evPhotoShotbyShot:
     photoEn = []
     for _, trace in shotsTof.iterrows():
         photoEn.append(evs[photoline][trace[photoline].values.argmin()])
+        '''
+        try:
+            popt, pconv = curve_fit(gauss, evs[photoline], trace[photoline], p0=[-600,opisEv - cfg.photoline,5] )
+        except Exception:
+            photoEn.append(evs[photoline][trace[photoline].values.argmin()])
+        else:
+            photoEn.append(popt[1])'''
 
     photoEn = pd.DataFrame(photoEn, columns=['ev'], index=opisData.index)
 
@@ -98,10 +115,11 @@ if cfg.plots.evPhotosc or cfg.plots.evPhotoShotbyShot:
         opisData  = opisData.mean(level=1)
         photoEn   = photoEn.mean(level=1)
 
+    plotCenter = opisData.ev.mean()
     plt.figure('evPhotolinesc')
     if cfg.plots.evPhotosc:
         plt.gca().set_aspect('equal')
-        plt.gca().set_xlim([opisEv-3,opisEv+3])
+        plt.gca().set_xlim([plotCenter-3,plotCenter+3])
         plt.plot(opisData.ev, photoEn.ev, 'o')
         print(f'ev-photoline Pear: {np.corrcoef(opisData.ev, photoEn.ev)[0,1]}')
     elif cfg.plots.evPhotoShotbyShot and not cfg.averageShots:
@@ -112,7 +130,7 @@ if cfg.plots.evPhotosc or cfg.plots.evPhotoShotbyShot:
 
             plt.subplot(f'33{i}')
             plt.gca().set_aspect('equal')
-            plt.gca().set_xlim([opisEv-3,opisEv+3])
+            plt.gca().set_xlim([plotCenter-3,plotCenter+3])
             plt.plot(opis, photo, 'o')
             print(f'ev-photoline Pear{id}: {np.corrcoef(opis, photo)[0,1]}')
     else:
@@ -121,6 +139,7 @@ if cfg.plots.evPhotosc or cfg.plots.evPhotoShotbyShot:
     if cfg.plots.traceMax:
         plt.figure('traceMax')
         plt.plot(evs[photoline], shotsTof.iloc[cfg.plots.traceMax][photoline])
+        plt.plot(evs[photoline], gauss(evs[photoline], -900, photoEn.iloc[cfg.plots.traceMax].to_numpy(), 4) )
         plt.axvline(x=photoEn.iloc[cfg.plots.traceMax].to_numpy())
 
 if cfg.plots.tracePlot:

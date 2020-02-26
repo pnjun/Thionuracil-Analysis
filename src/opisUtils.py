@@ -24,7 +24,9 @@ class evFitter2ElectricBoogaloo:
         self.ignoreThreshold = 40. #minimum integral for a shot to be considered valid
 
         #                          energy    amlpi    fwhm
-        self.fitSpeed = cp.array([[0.00006, 0.00006, 0.00002]]).T
+        self.fitSpeed = cp.array([[0.00015, 0.00015, 0.000012]]).T
+        self.fitIterations = 40
+        self.fitExponent   = 1
 
         #Parameters of a peak for fitting: energy and relative amplitude
         if gasID == GAS_ID_AR:
@@ -39,8 +41,11 @@ class evFitter2ElectricBoogaloo:
         else:
             raise Exception("Gas id not valid")
 
-        #Set up energy scales
+        #Scaling factors for fitSpeed (fit starts fast and slows down)
+        x = np.arange(self.fitIterations)
+        self.runspeeds = np.power( ( 1 - x/self.fitIterations ), self.fitExponent )
 
+        #Set up energy scales
         #Get peak bounds in samples for tof slicing. We use channel 0
         #Other channels might have sligtly different values, but
         #we are interested in a rough cut and doing it this way
@@ -227,13 +232,6 @@ class evFitter2ElectricBoogaloo:
     def _getAmplies(self):
         return self.integs.sum(axis=0)*0.005067 + 47
 
-    #returns Array of fitspeeds to optimize gradient descent
-    #starts fast and slows down. Max runs is the total number
-    #of fit iterations we will be doing
-    def fitScaling(self, maxRuns):
-        x = np.arange(maxRuns)
-        return np.power( ( 1 - x/maxRuns ), 1.2 )
-
     def leastSquare(self, photoStart, ampliStart = 60, fwhmStart = 12):
         #Load offsets first
         if not hasattr(self, 'of02'):
@@ -246,8 +244,7 @@ class evFitter2ElectricBoogaloo:
         fitGuess[2] *= fwhmStart
 
         #k varies the gradient descent speed gradually as fit progresses
-        runspeeds = self.fitScaling(40)
-        for k in runspeeds:
+        for k in self.runspeeds:
             for tofIdx in range(4):
                 if tofIdx % 2 == 0:
                     evs = self._evs(tofIdx, self.of02 )
