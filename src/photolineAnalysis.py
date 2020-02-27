@@ -8,69 +8,61 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
 from attrdict import AttrDict
 
-cfg = { "data" : { "folder" : "./data/",
-                   "file"   : "wp-10.2.csv", # only processed data from delayScan.py
+cfg = { "data" : { "folder" : "/home/dmayer/Schreibtisch/Thiouracil XPS/data/",
+                   "file"   : "wp_10.2-random.csv", # only processed data from delayScan.py
                    },
-        "out"  : { "folder"     : "./Plots/",
-                   "tag"        : "wp_10.2_2.0ps",
-                   "showPlots"  : False,
+        "out"  : { "img"        : "/home/dmayer/Schreibtisch/Thiouracil XPS/Plots/",
+                   "fit"        : "/home/dmayer/Schreibtisch/Thiouracil XPS/data/Fits/",
+                   "tag"        : "wp_10.2-tripleGauss",
                    "plotFormat" : "png",
                    "dpi"        : 300
                    },
+        "pltOnly" : False, # requires saved fit parameters
+        "plot" : {"show"    : False, # True of plots defined below shall be shown after script finished
+                  "diffLine": True, # 2d plot for each delay with data and fit
+                  "diffMap" : True, # colour plot with Ekin and delays
+                  "fitAmp"  : True, # plot amplitudes from fit
+                  "fitPeak" : True, # plot peaks from fit
+                  "fitWidth": True, # plot width from fit
+                  "zeroCr"  : True, # calculate & plot zero crossing
+                  "area"    : True, # calculate & plot area, REQUIRES ZERO CROSSING
+                  "PLCorr"  : False # correct for shift in depletion feature
+                  },
         "ROI"  : { "ekin"  : (90, 110),  # kinetic energy at which the photoline is located
-                   "delay" : (-0.3, 2.1)  # delays of interest
+                   "delay" : (-0.3, 10.1)  # delays of interest
                    },
-        "t0"   : 1180.,  # time zero estimate
-        "energy" : "kinetic",  # choose between kinetic or binding
-        "Eph"  : 272.,  # photon energy of soft x-rays
-        "fitGuess" : (3., 101, 5., 7., 103., 3., 0.01),  # guess for gaussian fit
-        "PLCorr" : True  # Correcting photoline shift by shift in negative feature
+        "tZero"  : { "correct" : True,
+                     "val" : 1180.
+                     },  # time zero estimate
+        "fit" : { "gauss" : 3,
+                  "guess" : (2., 100.5, 1.2, 6., 103., 1.5, 2., 98.5, 1.2, 0.05),  # guess for gaussian fit, second and fifth value should be adjusted if switched from KINETIC to BINDING ( and v.v.)
+                  "analyticZero" : False
+                  }
         }
 cfg = AttrDict(cfg)
 
-data = pd.read_csv(cfg.data.folder + cfg.data.file, sep=",", index_col=0)
-#data = data[(data.values != 0).all(axis=1)]  # filter rows with zero-only entries (no data rows)
-data.index = (data.index - cfg.t0) * -1  # shift delays
-delay = data.index
+color1 = "tab:red"
+color2 = "tab:blue"
+color3 = "tab:orange"
 
-dMask = (data.index.values > cfg.ROI.delay[0]) & (data.index.values < cfg.ROI.delay[1])
-data = data[dMask]
-eMask = (data == data) & (data.columns.astype(float) >= cfg.ROI.ekin[0]) & (data.columns.astype(float) <= cfg.ROI.ekin[1])
-data = data[eMask].T.dropna().T
-
-if cfg.energy == "binding":
-    data.columns = cfg.Eph - data.columns.astype(float)
-elif cfg.energy != "kinetic":
-    print("Parameter 'energy' in cfg should be either 'kinetic' or 'binding'!")
-    exit()
-
-
+# just a bunch of functions
 def gaussian(x, Amp, zero, width, const):
     return Amp * np.exp(-0.5 * np.square((x - zero) / width)) + const
 
 
-def modellDiff(x, A1, x1, b1, A2, x2, b2, const):
+def twoGaussianDiff(x, A1, x1, b1, A2, x2, b2, const):
     return gaussian(x, A1, x1, b1, const=0) - gaussian(x, A2, x2, b2, const=0) + const
 
 
-def decay(x, Amp, zero, tc, const):
-    return Amp * np.exp(-(x - zero) / tc) + const
+def threeGaussianDiff(x, A1, x1, b1, A2, x2, b2, A3, x3, b3, const):
+    return gaussian(x, A1, x1, b1, const=0) - gaussian(x, A2, x2, b2, const=0) + gaussian(x, A3, x3, b3, const=0) + const
 
 
-def modellTime(x, a0, t0, tau0, a1, tau1, a2, tau2, const=0):
-    sig = np.zeros(len(x)-1)
-
-    for a in range(len(x[:-1])):
-        j = 0
-        for b in range(len(x[:a+1])):
-            f1 = gaussian(x[b], a0, t0, tau0, const=0)
-            f2 = decay(x[a], a1, x[b], tau1, const=0)
-            f3 = decay(x[a], a2, x[b], tau2, const=0)
-            j += f1 * (f2 + f3) * abs(x[b] - x[b+1])
-        sig[a] += j
-    return sig + const
+def threeGaussianDiffDeriv(x, A1, x1, b1, A2, x2, b2, A3, x3, b3):
+    return gaussian(x, A1, x1, b1, const=0)*(x-x1)/b1**2 - gaussian(x, A2, x2, b2, const=0)*(x-x2)/b2**2 + gaussian(x, A3, x3, b3, const=0)*(x-x3)/b3**2
 
 
 def absMinZero(series, estMin=None, func="linear", n=3):
@@ -163,226 +155,37 @@ def analyticZero(params, roi, error=None):
     return [x0, ex0]
 
 
-### Fit difference spectra to double gaussian function ###
-mOpt = []
-mCov = []
-fit = []
-if cfg.energy == "binding":
-    eRange = cfg.Eph - np.array([cfg.ROI.ekin[1], cfg.ROI.ekin[0]])
-    energy = np.arange(eRange[0], eRange[1], 0.1)
-else:
-    energy = np.arange(cfg.ROI.ekin[0], cfg.ROI.ekin[1], 0.1)
+def newtonGauss(x, params, gauss=2, guess=None):
 
-print("Start with fitting double gaussian modell...")
-for i in range(len(data.values)):
+    if gauss == 2:
+        f = lambda y: twoGaussianDiff(y, *params)
+        fprime = lambda y: twoGaussianDiffDeriv(y, *params[:-1])
+    elif gauss == 3:
+        f = lambda y: threeGaussianDiff(y, *params)
+        fprime = lambda y: threeGaussianDiffDeriv(y, *params[:-1])
+    else:
+        print("Unknown difference modell: Number of gaussian has to be 2 or 3.")
+        exit()
 
-    pGuess = cfg.fitGuess
-    try:
-        pOpt, pCov = curve_fit(modellDiff, data.columns.values, data.values[i], p0=pGuess)
-        pCov = np.sqrt(np.diag(pCov))
-        mOpt.append(pOpt)
-        mCov.append(pCov)
-        fit.append(modellDiff(energy, *pOpt))
-    except RuntimeError:
-        print(f"RuntimeError at delay {data.index.values[i]} ps")
-        mOpt.append([np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN])
-        mCov.append([np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN])
-        fit.append([np.NaN for i in range(len(energy))])
+    if guess == None:
+        xmin = x[np.argmin(f(x))]
+        xmax = x[np.argmax(f(x))]
+        guess = (xmin + xmax) / 2
 
 
-mOpt = pd.DataFrame(data=np.array(mOpt).T, index=["A1", "x1", "w1", "A2", "x2", "w2", "const"], columns=data.index.values).T.dropna().T
-mCov = pd.DataFrame(data=np.array(mCov).T, index=["A1", "x1", "w1", "A2", "x2", "w2", "const"], columns=data.index.values).T.dropna().T
-fit = pd.DataFrame(data=np.array(fit), index=data.index.values, columns=energy).dropna()
+    prevGuess = guess+0.1
 
-mOpt.to_csv(cfg.data.folder+"Fits/"+cfg.out.tag+"_diffMapOptParam.csv", sep=",")
-mCov.to_csv(cfg.data.folder+"Fits/"+cfg.out.tag+"_diffMapOptError.csv", sep=",")
+    it = 0
+    while abs(prevGuess - guess) > 1e-5:
+        it += 1
+        prevGuess = guess
+        guess = guess - (f(guess) / fprime(guess))
+        if it > 10000:
+            print(f"Iteration reached 10000 steps. Current difference is {abs(prevGuess - guess)}. Stopping!")
+            return [np.NaN, None]
 
-print("Offsets derived from fit:")
-print(mOpt.loc["const"])
+    return [guess, None]
 
-#mCov = mCov.T.query("A1 < 5 & A2 < 2").T
-#mOpt = mOpt.T.drop(mOpt.T.index.difference(mCov.T.index)).T
-#fit = fit.drop(fit.index.difference(mCov.T.index))
-
-#################################
-### Difference map comparison ###
-#################################
-print("Plot difference map...")
-
-f1, ax1 = plt.subplots(1, 2, figsize=(9, 4), sharey=True)
-
-vMax = np.max(abs(data.values)) * 0.75
-cm = ax1[0].pcolormesh(data.columns.values.astype(float), data.index.values, data.values, cmap="bwr", vmax=vMax, vmin=-vMax)
-ax1[0].set_ylim(cfg.ROI.delay[0], cfg.ROI.delay[1])
-
-ax1[0].set_ylabel("Delay (ps)")
-ax1[0].set_title("Data")
-
-ax1[1].pcolormesh(fit.columns.values, fit.index.values, fit.values, cmap="bwr", vmax=vMax, vmin=-vMax)
-
-if cfg.energy == "kinetic":
-    ax1[0].set_xlabel("Kinetic Energy (eV)")
-    ax1[1].set_xlabel("Kinetic Energy (eV)")
-else:
-    ax1[0].set_xlabel("Binding Energy (eV)")
-    ax1[1].set_xlabel("Binding Energy (eV)")
-
-
-ax1[1].set_title("Fit")
-
-cb = plt.colorbar(cm)
-cb.set_label("Difference counts")
-plt.tight_layout()
-plt.savefig(cfg.out.folder+cfg.out.tag+"_diffMap."+cfg.out.plotFormat, dpi=cfg.out.dpi)
-
-#########################################
-### Amplitude of the fitted gaussians ###
-#########################################
-print("Plot amplitude...")
-
-color1 = "tab:red"
-color2 = "tab:blue"
-
-f21, ax21 = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
-
-ax21[0].errorbar(mOpt.columns.values, mOpt.loc["A1"], yerr=mCov.loc["A1"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color1, label="Gauß 1")
-ax21[0].errorbar(mOpt.columns.values, mOpt.loc["A2"], yerr=mCov.loc["A2"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color2, label="Gauß 2")
-ax21[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
-ax21[0].set_ylim(-1, 10)
-ax21[0].set_ylabel("Amplitude (counts)")
-ax21[0].legend()
-
-rAmp = mOpt.loc["A1"] / mOpt.loc["A2"]
-urAmp = rAmp * (abs(mCov.loc["A1"] / mOpt.loc["A1"]) + abs(mCov.loc["A2"] / mOpt.loc["A2"]))
-
-ax21[1].errorbar(mOpt.columns.values, rAmp, yerr=urAmp, fmt=".", markersize=2, capsize=2, elinewidth=1)
-ax21[1].set_ylim(-1, 2)
-ax21[1].set_xlabel("Delay (ps)")
-ax21[1].set_ylabel("Amplitude ratio")
-
-plt.tight_layout()
-plt.savefig(cfg.out.folder+cfg.out.tag+"_fitAmp."+cfg.out.plotFormat, dpi=cfg.out.dpi)
-
-################################
-### Peak position comparison ###
-################################
-print("Plot peak position...")
-
-f22, ax22 = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
-
-ax22[0].errorbar(mOpt.columns.values, mOpt.loc["x1"], yerr=mCov.loc["x1"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color1, label="Gauß 1")
-ax22[0].errorbar(mOpt.columns.values, mOpt.loc["x2"], yerr=mCov.loc["x2"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color2, label="Gauß 2")
-ax22[0].set_ylabel("Peak position (eV)")
-if cfg.energy == "kinetic":
-    ax22[0].set_ylim(cfg.ROI.ekin[0]*1.05, cfg.ROI.ekin[1]*0.96)
-else:
-    ax22[0].set_ylim(eRange[0]*1.025, eRange[1]*0.97)
-ax22[0].legend()
-
-posDiff = mOpt.loc["x1"] - mOpt.loc["x2"]
-upDiff = abs(mCov.loc["x1"]) + abs(mCov.loc["x2"])
-
-ax22[1].errorbar(mOpt.columns.values, posDiff, yerr=upDiff, fmt=".", markersize=2, capsize=2, elinewidth=1)
-ax22[1].set_xlabel("Delay (ps)")
-ax22[1].set_ylabel("Difference position (eV)")
-ax22[1].set_ylim(-5, 5)
-ax22[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
-
-plt.tight_layout()
-plt.savefig(cfg.out.folder+cfg.out.tag+"_fitPeak."+cfg.out.plotFormat, dpi=cfg.out.dpi)
-
-if cfg.PLCorr:
-    print("Correct peak position by change in negative feature...")
-    # correct for photoline wobbling
-    # assumes that the depletion feature should stay at a constant energy
-    negMean = mOpt.loc["x2"].mean()
-    negStd  = mOpt.loc["x2"].std()
-    diff = mOpt.loc["x2"] - negMean
-    diffErr = mCov.loc["x2"] + negStd
-
-    print(f"Mean position of depletion: {negMean:.2f} +- {negStd:.2f} eV")
-    print(f"Average absolute displacement: {abs(diff).mean():.2f} +- {abs(diff).std():.2f} eV")
-
-    shiftedPos = mOpt.loc["x1"] - diff
-    shiftedPosErr = mCov.loc["x1"] + diffErr
-
-    f2x, ax2x = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
-
-    ax2x[0].errorbar(diff.index.values, diff.values, yerr=diffErr.values,
-                    fmt=".", markersize=2, capsize=2, elinewidth=1)
-    ax2x[1].errorbar(shiftedPos.index.values, shiftedPos.values, yerr=shiftedPosErr.values,
-                    fmt=".", markersize=2, capsize=2, elinewidth=1)
-    ax2x[1].hlines(negMean, xmin=diff.index.values[0], xmax=diff.index.values[-1])
-    ax2x[0].set_ylabel("Depletion wobbling (eV)")
-    ax2x[1].set_ylabel("Corrected peak position (eV)")
-    ax2x[1].set_xlabel("Delay (ps)")
-    plt.tight_layout()
-    plt.savefig(cfg.out.folder+cfg.out.tag+"_peakCorr."+cfg.out.plotFormat, dpi=cfg.out.dpi)
-
-#############################
-### Peak width comparison ###
-#############################
-print("Plot peak width...")
-
-f23, ax23 = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
-
-ax23[0].errorbar(mOpt.columns.values, abs(mOpt.loc["w1"]), yerr=mCov.loc["w1"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color1, label="Gauß 1")
-ax23[0].errorbar(mOpt.columns.values, abs(mOpt.loc["w2"]), yerr=mCov.loc["w2"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color2, label="Gauß 2")
-ax23[0].set_ylim(0, 4)
-ax23[0].set_ylabel("Peak width (eV)")
-
-wDiff = mOpt.loc["w1"] - mOpt.loc["w2"]
-uwDiff = abs(mCov.loc["w1"]) + abs(mCov.loc["w2"])
-
-ax23[1].errorbar(mOpt.columns.values, wDiff, yerr=uwDiff, fmt=".", markersize=2, capsize=2, elinewidth=1, label="Difference")
-ax23[1].set_ylim(-1, 2.5)
-ax23[1].set_xlabel("Delay (ps)")
-ax23[1].set_ylabel("Difference width (eV)")
-ax23[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
-plt.tight_layout()
-plt.savefig(cfg.out.folder+cfg.out.tag+"_fitWidth."+cfg.out.plotFormat, dpi=cfg.out.dpi)
-
-##########################
-### Find zero-crossing ###
-##########################
-print("Calculate zero-crossing...")
-
-dZero = []
-fZero = []
-
-# estimating from minimum abs(data)
-for i in range(len(data.index.values)):
-    ld = absMinZero(data.loc[data.index.values[i]], estMin=270, func="linear", n=13)
-    dZero.append(ld)
-
-# estimating analyitcally from double gaussian fit
-for i in range(len(fit.index.values)):
-    lf = analyticZero(mOpt.values.T[i], (cfg.fitGuess[1], cfg.fitGuess[4]), error=mCov.values.T[i])
-    fZero.append(lf)
-
-
-dZero = pd.DataFrame(data=np.array(dZero).T, columns=data.index.values, index=["x0", "ux0"])
-fZero = pd.DataFrame(data=np.array(fZero).T, columns=fit.index.values, index=["x0", "ux0"])
-
-dZero.to_csv(cfg.data.folder+"Fits/"+cfg.out.tag+"_zcData.csv", sep=",")
-fZero.to_csv(cfg.data.folder+"Fits/"+cfg.out.tag+"_zcFit.csv", sep=",")
-
-f3, ax3 = plt.subplots()
-ax3.plot(dZero.columns.values, dZero.loc["x0"], ".", markersize=4, color="tab:blue", label="data")
-ax3.plot(fZero.columns.values, fZero.loc["x0"], ".", markersize=4, color="tab:orange", label="fit")
-ax3.set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
-zeroMean = dZero.loc["x0"].mean()
-ax3.set_ylim(zeroMean*0.98, zeroMean*1.02)
-ax3.set_xlabel("Delay (ps)")
-ax3.set_ylabel("Zero position (eV)")
-ax3.legend()
-plt.tight_layout()
-plt.savefig(cfg.out.folder + cfg.out.tag + "_zeroPos."+cfg.out.plotFormat, dpi=cfg.out.dpi)
-
-######################
-### Calculate area ###
-######################
-print("Calculate integrated signal...")
 
 def integral(series):
     a = 0
@@ -408,35 +211,346 @@ def calc_area(series, zero, sigma1=None, sigma2=None):
     return [a1, a2]
 
 
-fit_area = np.array([calc_area(fit.loc[i], fZero.loc["x0"].loc[i]) for i in fZero.columns]).T
-data_area = np.array([calc_area(data.loc[i], dZero.loc["x0"].loc[i]) for i in dZero.columns]).T
+print("Loading data ...")
+data = pd.read_csv(cfg.data.folder + cfg.data.file, sep=",", index_col=0)
+if cfg.tZero.correct:
+    data.index = cfg.tZero.val - data.index  # shift delays
+delay = data.index
 
-np.savetxt(cfg.data.folder+"Fits/"+cfg.out.tag+"_areaData.csv",data_area, delimiter=",")
-np.savetxt(cfg.data.folder+"Fits/"+cfg.out.tag+"_areaFit.csv",fit_area, delimiter=",")
+dMask = (data.index.values > cfg.ROI.delay[0]) & (data.index.values < cfg.ROI.delay[1])
+data = data[dMask]
+eMask = (data == data) & (data.columns.astype(float) >= cfg.ROI.ekin[0]) & (data.columns.astype(float) <= cfg.ROI.ekin[1])
+data = data[eMask].T.dropna().T
 
-f4, ax4 = plt.subplots(1, 2, figsize=(8, 4))
+energy = np.arange(cfg.ROI.ekin[0], cfg.ROI.ekin[1], 0.1)
 
-ax4[0].plot(dZero.columns.values, abs(data_area[0]), color="tab:red", label="Data +")
-ax4[0].plot(dZero.columns.values, abs(data_area[1]), color="tab:blue", label="Data -")
-ax4[0].plot(fZero.columns.values, abs(fit_area[0]), "--", color="tab:red", label="Fit +")
-ax4[0].plot(fZero.columns.values, abs(fit_area[1]), "--", color="tab:blue", label="Fit -")
-ax4[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
-ax4[0].set_xlabel("Delay (ps)")
-ax4[0].set_ylabel(r"Area (counts $\cdot$ eV)")
-ax4[0].legend()
+if cfg.pltOnly == False:
+### Fit difference spectra to double gaussian function ###
+    mOpt = []
+    mCov = []
+    fit  = []
 
-ax4[1].plot(dZero.columns.values, abs(data_area[0]) - abs(data_area[1]), label="Data (pos - neg)")
-ax4[1].plot(fZero.columns.values, abs(fit_area[0]) - abs(fit_area[1]), label="Fit (pos - neg)")
-ax4[1].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
-ax4[1].set_xlabel("Delay (ps)")
-ax4[1].set_ylabel(r"Area difference (counts $\cdot$ eV)")
-ax4[1].legend()
-plt.tight_layout()
-plt.savefig(cfg.out.folder+cfg.out.tag+"_area." + cfg.out.plotFormat, dpi=cfg.out.dpi)
+    print("Start with fitting gaussian modell...")
+    for i in range(len(data.values)):
+
+        try:
+            if cfg.fit.gauss == 2:
+                pOpt, pCov = curve_fit(twoGaussianDiff, data.columns.values, data.values[i], p0=cfg.fit.guess)
+                fit.append(twoGaussianDiff(energy, *pOpt))
+            else:
+                pOpt, pCov = curve_fit(threeGaussianDiff, data.columns.values, data.values[i], p0=cfg.fit.guess)
+                fit.append(threeGaussianDiff(energy, *pOpt))
+
+            pCov = np.sqrt(np.diag(pCov))
+            mOpt.append(pOpt)
+            mCov.append(pCov)
+
+        except RuntimeError:
+            print(f"RuntimeError at delay {data.index.values[i]} ps")
+            if cfg.fit.gauss == 2:
+                mOpt.append([np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN])
+                mCov.append([np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN])
+                fit.append([np.NaN for i in range(len(energy))])
+            else:
+                mOpt.append([np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN])
+                mCov.append([np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN, np.NaN])
+                fit.append([np.NaN for i in range(len(energy))])
+
+    if cfg.fit.gauss == 2:
+        mOpt = pd.DataFrame(data=np.array(mOpt).T, index=["A1", "x1", "w1", "A2", "x2", "w2", "const"], columns=data.index.values).T.dropna().T
+        mCov = pd.DataFrame(data=np.array(mCov).T, index=["A1", "x1", "w1", "A2", "x2", "w2", "const"], columns=data.index.values).T.dropna().T
+    else:
+        mOpt = pd.DataFrame(data=np.array(mOpt).T, index=["A1", "x1", "w1", "A2", "x2", "w2", "A3", "x3", "w3", "const"], columns=data.index.values).T.dropna().T
+        mCov = pd.DataFrame(data=np.array(mCov).T, index=["A1", "x1", "w1", "A2", "x2", "w2", "A3", "x3", "w3", "const"], columns=data.index.values).T.dropna().T
+
+    fit = pd.DataFrame(data=np.array(fit), index=data.index.values, columns=energy).dropna()
+
+    mOpt.to_csv(cfg.out.fit+cfg.out.tag+"_diffMapOptParam.csv", sep=",")
+    mCov.to_csv(cfg.out.fit+cfg.out.tag+"_diffMapOptError.csv", sep=",")
+
+else:
+    print("Load fit parameters...")
+    mOpt = pd.read_csv(cfg.out.fit+cfg.out.tag+"_diffMapOptParam.csv", sep=",", index_col=0)
+    mCov = pd.read_csv(cfg.out.fit+cfg.out.tag+"_diffMapOptError.csv", sep=",", index_col=0)
+    mOpt.columns = mOpt.columns.values.astype(float)
+    mCov.columns = mCov.columns.values.astype(float)
+    if mOpt.index.size % 2 == 1:
+        func = lambda y, p: twoGaussianDiff(y, *p)
+    elif mOpt.index.size % 3 == 1:
+        func = lambda y, p: threeGaussianDiff(y, *p)
+    else:
+        print(f"Unknown modell. Expected 7 or 11 parameters. Got {mOpt.index.size}.")
+
+    fit = [ func(energy, mOpt.T.values[i]) for i in range(mOpt.columns.size)]
+    fit = pd.DataFrame(data=fit, columns=energy, index=mOpt.columns)
+
+
+print(f"Offsets derived from fit: {mOpt.T.const.mean():.3f} +/- {mOpt.T.const.std():.3f}")
+
+#################################
+### Difference map comparison ###
+#################################
+if cfg.plot.diffMap:
+    print("Plot difference map...")
+
+    if cfg.plot.diffLine:
+        for i in range(fit.shape[0]):
+            fx = plt.figure()
+            id = fit.index[i]
+            plt.plot(data.columns.values.astype(float), data.loc[id])
+            plt.plot(energy, fit.iloc[i])
+            plt.xlabel("Kinetic energy (eV)")
+            plt.ylabel("Difference signal")
+            plt.title(f"delay {id:.4f} ps")
+            plt.savefig(cfg.out.img+cfg.out.tag+f"_delay_{id:.3f}."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+            plt.close(fx)
+
+    f1, ax1 = plt.subplots(1, 2, figsize=(9, 4), sharey=True)
+
+    ax1[0].set_title("Data")
+    ax1[0].set_xlabel("Kinetic Energy (eV)")
+    ax1[1].set_xlabel("Kinetic Energy (eV)")
+
+    vMax = np.max(abs(data.values)) * 0.75
+    cm = ax1[0].pcolormesh(data.columns.values.astype(float), data.index.values, data.values, cmap="bwr", vmax=vMax, vmin=-vMax)
+
+    ax1[0].set_ylim(cfg.ROI.delay[0], cfg.ROI.delay[1])
+    ax1[0].set_ylabel("Delay (ps)")
+
+    ax1[1].pcolormesh(fit.columns.values, fit.index.values, fit.values, cmap="bwr", vmax=vMax, vmin=-vMax)
+    if cfg.fit.gauss == 2:
+        ax1[1].set_title("Double gaussian fit")
+    elif cfg.fit.gauss == 3:
+        ax1[1].set_title("Triple gaussian fit")
+
+    cb = plt.colorbar(cm)
+    cb.set_label("Difference counts")
+    plt.tight_layout()
+    plt.savefig(cfg.out.img+cfg.out.tag+"_diffMap."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+
+#########################################
+### Amplitude of the fitted gaussians ###
+#########################################
+
+if cfg.plot.fitAmp:
+    print("Plot amplitude...")
+
+    f21, ax21 = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
+
+    ax21[0].errorbar(mOpt.columns.values, mOpt.loc["A1"], yerr=mCov.loc["A1"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color1, label="Gauß 1")
+    ax21[0].errorbar(mOpt.columns.values, mOpt.loc["A2"], yerr=mCov.loc["A2"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color2, label="Gauß 2")
+    if cfg.fit.gauss == 3:
+        ax21[0].errorbar(mOpt.columns.values, mOpt.loc["A3"], yerr=mCov.loc["A3"], fmt="^", markersize=2, capsize=2, elinewidth=1, color=color3, label="Gauß 3")
+
+    ax21[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
+    ax21[0].set_ylim(-1, 10)
+    ax21[0].set_ylabel("Amplitude (counts)")
+    ax21[0].legend()
+
+    rAmp = mOpt.loc["A1"] / mOpt.loc["A2"]
+    urAmp = rAmp * (abs(mCov.loc["A1"] / mOpt.loc["A1"]) + abs(mCov.loc["A2"] / mOpt.loc["A2"]))
+
+    ax21[1].errorbar(mOpt.columns.values, rAmp, yerr=urAmp, fmt=".", markersize=2, capsize=2, elinewidth=1)
+    ax21[1].set_ylim(-1, 2)
+    ax21[1].set_xlabel("Delay (ps)")
+    ax21[1].set_ylabel("Amplitude ratio")
+
+    plt.tight_layout()
+    plt.savefig(cfg.out.img+cfg.out.tag+"_fitAmp."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+
+################################
+### Peak position comparison ###
+################################
+if cfg.plot.fitPeak:
+    print("Plot peak position...")
+
+    f22, ax22 = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
+
+    ax22[0].errorbar(mOpt.columns.values, mOpt.loc["x1"], yerr=mCov.loc["x1"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color1, label="Gauß 1")
+    ax22[0].errorbar(mOpt.columns.values, mOpt.loc["x2"], yerr=mCov.loc["x2"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color2, label="Gauß 2")
+    if cfg.fit.gauss == 3:
+        ax22[0].errorbar(mOpt.columns.values, mOpt.loc["x3"], yerr=mCov.loc["x3"], fmt="^", markersize=2, capsize=2, elinewidth=1, color=color3, label="Gauß 3")
+
+    ax22[0].set_ylabel("Peak position (eV)")
+    ax22[0].set_ylim(cfg.ROI.ekin[0]*1.05, cfg.ROI.ekin[1]*0.96)
+    ax22[0].legend()
+
+    posDiff = mOpt.loc["x1"] - mOpt.loc["x2"]
+    upDiff = abs(mCov.loc["x1"]) + abs(mCov.loc["x2"])
+
+    ax22[1].errorbar(mOpt.columns.values, posDiff, yerr=upDiff, fmt=".", markersize=2, capsize=2, elinewidth=1, label="G1 - G2")
+    if cfg.fit.gauss == 3:
+        posDiff2 = mOpt.loc["x3"] - mOpt.loc["x2"]
+        upDiff2 = abs(mCov.loc["x3"]) + abs(mCov.loc["x2"])
+        ax22[1].errorbar(mOpt.columns.values, posDiff2, yerr=upDiff2, fmt=".", markersize=2, capsize=2, elinewidth=1, label="G3 - G2")
+        ax22[1].legend()
+
+    ax22[1].set_xlabel("Delay (ps)")
+    ax22[1].set_ylabel("Difference position (eV)")
+    ax22[1].set_ylim(-4, 1)
+    ax22[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
+
+    plt.tight_layout()
+    plt.savefig(cfg.out.img+cfg.out.tag+"_fitPeak."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+
+    if cfg.plot.PLCorr:
+        print("Correct peak position by change in negative feature...")
+        # correct for photoline wobbling
+        # assumes that the depletion feature should stay at a constant energy
+        negMean = mOpt.loc["x2"].mean()
+        negStd  = mOpt.loc["x2"].std()
+        diff = mOpt.loc["x2"] - negMean
+        diffErr = mCov.loc["x2"] + negStd
+
+        print(f"Mean position of depletion: {negMean:.2f} +- {negStd:.2f} eV")
+        print(f"Average absolute displacement: {abs(diff).mean():.2f} +- {abs(diff).std():.2f} eV")
+
+        shiftedPos = mOpt.loc["x1"] - diff
+        shiftedPosErr = mCov.loc["x1"] + diffErr
+
+        f2x, ax2x = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
+
+        ax2x[0].errorbar(diff.index.values, diff.values, yerr=diffErr.values,
+                        fmt=".", markersize=2, capsize=2, elinewidth=1)
+        ax2x[1].plot(shiftedPos.index.values, shiftedPos.values, ".")#, yerr=shiftedPosErr.values,
+        #                fmt=".", markersize=2, capsize=2, elinewidth=1)
+        ax2x[1].hlines(negMean, xmin=diff.index.values[0], xmax=diff.index.values[-1], ls="--")
+        ax2x[0].set_ylabel("Depletion wobbling (eV)")
+        ax2x[1].set_ylabel("Corrected peak position (eV)")
+        ax2x[1].set_xlabel("Delay (ps)")
+        ax2x[1].set_ylim(95, 105)
+        plt.tight_layout()
+        plt.savefig(cfg.out.img+cfg.out.tag+"_peakCorr."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+
+#############################
+### Peak width comparison ###
+#############################
+if cfg.plot.fitWidth:
+    print("Plot peak width...")
+
+    f23, ax23 = plt.subplots(2, 1, figsize=(5, 6), sharex=True)
+
+    ax23[0].errorbar(mOpt.columns.values, abs(mOpt.loc["w1"]), yerr=mCov.loc["w1"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color1, label="Gauß 1")
+    ax23[0].errorbar(mOpt.columns.values, abs(mOpt.loc["w2"]), yerr=mCov.loc["w2"], fmt=".", markersize=2, capsize=2, elinewidth=1, color=color2, label="Gauß 2")
+    if cfg.fit.gauss == 3:
+        ax23[0].errorbar(mOpt.columns.values, abs(mOpt.loc["w3"]), yerr=mCov.loc["w3"], fmt="^", markersize=2, capsize=2, elinewidth=1, color=color3, label="Gauß 3")
+        ax23[0].set_ylim(0, 5)
+    else:
+        ax23[0].set_ylim(0, 4)
+    ax23[0].set_ylabel("Peak width (eV)")
+
+    wDiff = mOpt.loc["w1"] - mOpt.loc["w2"]
+    uwDiff = abs(mCov.loc["w1"]) + abs(mCov.loc["w2"])
+
+    ax23[1].errorbar(mOpt.columns.values, wDiff, yerr=uwDiff, fmt=".", markersize=2, capsize=2, elinewidth=1, label="G1 - G2")
+    if cfg.fit.gauss == 3:
+        wDiff2 = mOpt.loc["w3"] - mOpt.loc["w2"]
+        uwDiff2 = abs(mCov.loc["w3"]) + abs(mCov.loc["w2"])
+        ax22[1].errorbar(mOpt.columns.values, posDiff2, yerr=upDiff2, fmt=".", markersize=2, capsize=2, elinewidth=1, label="G3 - G2")
+        ax22[1].legend()
+
+    ax23[1].set_ylim(-1, 2.5)
+    ax23[1].set_xlabel("Delay (ps)")
+    ax23[1].set_ylabel("Difference width (eV)")
+    ax23[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
+    plt.tight_layout()
+    plt.savefig(cfg.out.img+cfg.out.tag+"_fitWidth."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+
+##########################
+### Find zero-crossing ###
+##########################
+
+print("Calculate zero-crossing...")
+if cfg.plot.zeroCr:
+    dZero = []
+
+    # estimating from minimum abs(data)
+    for i in range(len(data.index.values)):
+        ld = absMinZero(data.loc[data.index.values[i]], estMin=None, func="linear", n=13)
+        dZero.append(ld)
+
+    dZero = pd.DataFrame(data=np.array(dZero).T, columns=data.index.values, index=["x0", "ux0"])
+    dZero.to_csv(cfg.out.fit+cfg.out.tag+"_zcData.csv", sep=",")
+
+    f3, ax3 = plt.subplots()
+    ax3.plot(dZero.columns.values, dZero.loc["x0"], ".", markersize=4, color="tab:blue", label="data")
+
+    if cfg.fit.gauss == 2 and cfg.fit.analyticZero:
+        # estimating analyitcally from double gaussian fit
+        fZero = []
+        for i in range(len(fit.index.values)):
+            lf = analyticZero(mOpt.values.T[i], (cfg.fit.guess[1], cfg.fit.guess[4]), error=mCov.values.T[i])
+            fZero.append(lf)
+
+        fZero = pd.DataFrame(data=np.array(fZero).T, columns=fit.index.values, index=["x0", "ux0"])
+        fZero.to_csv(cfg.out.fit+cfg.out.tag+"_zcFit.csv", sep=",")
+        ax3.plot(fZero.columns.values, fZero.loc["x0"], ".", markersize=4, color="tab:orange", label="fit")
+        ax3.legend()
+
+    ax3.set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
+    zeroMean = dZero.loc["x0"].mean()
+    ax3.set_ylim(100, 102.5)
+    ax3.set_xlabel("Delay (ps)")
+    ax3.set_ylabel("Zero position (eV)")
+    plt.tight_layout()
+    plt.savefig(cfg.out.img + cfg.out.tag + "_zeroPos."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+
+    if cfg.plot.PLCorr:
+        print("Correct zero position with change in negative feature...")
+
+        f3x = plt.figure()
+        shiftedZeroD = dZero.loc["x0"] - diff
+        plt.plot(shiftedZeroD.index.values, shiftedZeroD.values,".", label="Data")
+
+        if cfg.fit.gauss == 2 and cfg.fit.analyticZero:
+            shiftedZeroF = fZero.loc["x0"] - diff
+            plt.plot(shiftedZeroF.index.values, shiftedZeroF.values,".", label="Data")
+
+        plt.ylabel("Corrected zero position (eV)")
+        plt.ylim(zeroMean*0.98, zeroMean*1.02)
+        plt.xlabel("Delay (ps)")
+        plt.tight_layout()
+        plt.savefig(cfg.out.img+cfg.out.tag+"_zeroCorr."+cfg.out.plotFormat, dpi=cfg.out.dpi)
+
+    ######################
+    ### Calculate area ###
+    ######################
+    if cfg.plot.area:
+        print("Calculate integrated signal...")
+
+        data_area = np.array([calc_area(data.loc[i], dZero.loc["x0"].loc[i]) for i in dZero.columns]).T
+        np.savetxt(cfg.out.fit+cfg.out.tag+"_areaData.csv",data_area, delimiter=",")
+
+        if cfg.fit.gauss == 2 and cfg.fit.analyticZero:
+            fit_area = np.array([calc_area(fit.loc[i], fZero.loc["x0"].loc[i]) for i in fZero.columns]).T
+            np.savetxt(cfg.out.fit+cfg.out.tag+"_areaFit.csv",fit_area, delimiter=",")
+
+        f4, ax4 = plt.subplots(1, 2, figsize=(8, 4))
+
+        ax4[0].plot(dZero.columns.values, abs(data_area[0]), color=color1, label="Data +")
+        ax4[0].plot(dZero.columns.values, abs(data_area[1]), color=color2, label="Data -")
+        ax4[1].plot(dZero.columns.values, abs(data_area[0]) - abs(data_area[1]), label="Data (pos - neg)")
+
+        if cfg.fit.gauss == 2 and cfg.fit.analyticZero:
+            ax4[0].plot(fZero.columns.values, abs(fit_area[0]), "--", color=color1, label="Fit +")
+            ax4[0].plot(fZero.columns.values, abs(fit_area[1]), "--", color=color2, label="Fit -")
+            ax4[1].plot(fZero.columns.values, abs(fit_area[0]) - abs(fit_area[1]), label="Fit (pos - neg)")
+
+        ax4[0].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
+        ax4[0].set_xlabel("Delay (ps)")
+        ax4[0].set_ylabel(r"Area (counts $\cdot$ eV)")
+        ax4[0].legend()
+
+        ax4[1].set_xlim(cfg.ROI.delay[0], cfg.ROI.delay[1])
+        ax4[1].set_xlabel("Delay (ps)")
+        ax4[1].set_ylabel(r"Area difference (counts $\cdot$ eV)")
+        ax4[1].legend()
+        plt.tight_layout()
+        plt.savefig(cfg.out.img+cfg.out.tag+"_area." + cfg.out.plotFormat, dpi=cfg.out.dpi)
 
 print("Done.")
 
-if cfg.out.showPlots:
+if cfg.plot.show:
     plt.show()
 else:
     plt.close("all")
