@@ -16,19 +16,6 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'output'   : { 'path'     : './data/',
                           'fname'    : 'DelayCK2s'
                         },
-<<<<<<< HEAD
-           'time'     : { #'start' : datetime(2019,3,26,16,25,0).timestamp(),
-                          #'stop'  : datetime(2019,3,26,16,50,0).timestamp(),
-                          #'start' : datetime(2019,3,26,20,45,0).timestamp(),
-                          #'stop'  : datetime(2019,3,26,20,59,0).timestamp(),
-                          'start' : datetime(2019,3,26,20,44,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,21,0,0).timestamp(),
-                        },
-           'filters'  : { 'opisEV'      : (265.,275.),
-                          'retarder'    : (-81.,-1.),
-#                          'delay'       : (1170, 1180.0),
-                          'waveplate'   : (38.,41.)
-=======
            'time'     : { 'start' : datetime(2019,4,4,19,40,0).timestamp(),
                           'stop'  : datetime(2019,4,4,20,4,0).timestamp(),
                         },
@@ -36,17 +23,11 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'retarder'    : (-15,-5),
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (35,45)
->>>>>>> 2a351d25d3e4e2899bd9b04463f292b6c7640403
                         },
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
-<<<<<<< HEAD
-           'delayBinStep'   : 0.01,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 50,       # Number if bis to use, only relevant when delayBin_mode is QUANTILE
-=======
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 15,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
->>>>>>> 2a351d25d3e4e2899bd9b04463f292b6c7640403
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
@@ -213,48 +194,6 @@ if cfg.onlyplot:
     delays = df.index.to_numpy()
 
 #plot resulting image
-<<<<<<< HEAD
-plt.figure()
-cmax = np.max(np.abs(img.values))*0.15
-#np.abs(img.values[np.logical_not(np.isnan(img))]).max()*0.1
-plt.pcolormesh(evs, delays ,img.values, cmap='bwr', vmax=cmax, vmin=-cmax)
-plt.xlabel("Kinetic energy (eV)")
-plt.ylabel("Averaged Signal (counts)")
-plt.tight_layout()
-#plt.savefig(cfg.output.path + cfg.output.fname)
-#plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
-print("\nDone")
-
-
-
-#plot liner graph of integral over photoline
-plt.figure()
-#photoline = slice(820,877)
-#photoline = evs[np.abs(evs - 107).argmin() : np.abs(evs - 102.5).argmin()]
-
-#photoline1 = slice(np.abs(evs - 98.5).argmin() , np.abs(evs - 92).argmin())
-photoline2 = slice(np.abs(evs - 100).argmin() , np.abs(evs - 98.5).argmin())
-#photoline3 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin())
-
-#print("photoline is:", photoline)
-#print("img.T[]sum() is:", img.values.T[photoline].sum(axis=0))
-
-#NegPhLine, = plt.plot(delays, img.values.T[photoline3].sum(axis=0), label = 'negative photoline shift')
-#PosPhLine1, = plt.plot(delays, img.values.T[photoline1].sum(axis=0), label = 'positive photoline shift 90-99 eV')
-PosPhLine2, = plt.plot(delays, img.values.T[photoline2].sum(axis=0), label = 'positive photoline shift 99-100 eV')
-plt.legend(handles=[PosPhLine2])
-
-plt.figure()
-valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin())
-plt.plot(delays, img.values.T[valence].sum(axis=0))
-plt.show()
-
-'''
-results = np.full((img.shape[0]+1,img.shape[1]+1), np.nan)
-results[1:,1:] = img
-results[1:,0] = delays
-results[0,1:] = evs
-=======
 if cfg.plots.delay2d:
     ROI = slice(np.abs(evs - 270).argmin() , None)
     plt.figure(figsize=(9, 7))
@@ -330,6 +269,5 @@ if cfg.plots.fragmentSearch and not cfg.onlyplot:
     slax = plt.axes([0.1, 0.03, 0.65, 0.04])
     slider = Slider(slax, 'Amp', 0, diffAcc.shape[0]-1, valinit=0)
     slider.on_changed(update)
->>>>>>> 2a351d25d3e4e2899bd9b04463f292b6c7640403
 
 plt.show()
