@@ -11,15 +11,17 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'first_block.h5'
+                          'trace'    : 'fisrt_block.h5'
                           #'trace'    : 'second_block.h5'
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
                           'fname'    : 'DelayCK2s'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,21,54,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,22,1,0).timestamp(),
+           #'time'     : { 'start' : datetime(2019,3,26,21,54,0).timestamp(),
+           #               'stop'  : datetime(2019,3,26,22,1,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,22,50,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,22,58,0).timestamp(),
            #'time'     : { 'start' : datetime(2019,4,1,1,43,0).timestamp(),
            #               'stop'  : datetime(2019,4,1,2,56,0).timestamp(),
                         },
@@ -28,7 +30,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (35,45)
                         },
-           'sdfilter' : "GMD > 0.5",#& BAM != 0", # filter for shotsdata parameters used in query method
+           'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 50,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
@@ -222,14 +224,16 @@ if cfg.plots.photoShift:
     # quick plots for check. for more detailed analysis use photolineAnalysis.py
     # plot line graph of integral over photoline features
     plt.figure()
-    photoline1 = slice(np.abs(evs - 101.5).argmin() , np.abs(evs - 95.5).argmin())
-    photoline2 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 101.5).argmin())
+    photoline1 = slice(np.abs(evs - 101.5).argmin() , np.abs(evs - 97.5).argmin())
+    photoline2 = slice(np.abs(evs - 97.5).argmin() , np.abs(evs - 95.5).argmin())
+    photoline3 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 101.5).argmin())
 
-    NegPhLine, = plt.plot(delays, abs(diffAcc.T[photoline2].sum(axis=0)), label = 'negative photoline shift')
-    PosPhLine, = plt.plot(delays, abs(diffAcc.T[photoline1].sum(axis=0)), label = 'positive photoline shift')
+    NegPhLine, = plt.plot(delays, abs(diffAcc.T[photoline3].sum(axis=0)), label = 'negative photoline shift')
+    PosPhLine1, = plt.plot(delays, abs(diffAcc.T[photoline1].sum(axis=0)), label = 'positive photoline shift 1')
+    PosPhLine2, = plt.plot(delays, abs(diffAcc.T[photoline2].sum(axis=0)), label = 'positive photoline shift 2')
     plt.xlabel("Delay (ps)")
     plt.ylabel("Integrated signal")
-    plt.legend(handles=[PosPhLine, NegPhLine])
+    plt.legend(handles=[PosPhLine1, PosPhLine2, NegPhLine])
     plt.tight_layout()
 
     # plot extrema as rough indication for possible shifts
