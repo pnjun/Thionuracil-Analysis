@@ -19,17 +19,19 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                         },
            'time'     : { #'start' : datetime(2019,3,26,16,25,0).timestamp(),
                           #'stop'  : datetime(2019,3,26,16,50,0).timestamp(),
-                          'start' : datetime(2019,3,26,20,45,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,20,59,0).timestamp(),
+                          #'start' : datetime(2019,3,26,20,45,0).timestamp(),
+                          #'stop'  : datetime(2019,3,26,20,59,0).timestamp(),
+                          'start' : datetime(2019,3,26,20,44,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,21,0,0).timestamp(),
                         },
            'filters'  : { 'opisEV'      : (265.,275.),
-                          'retarder'    : (-81.,-79.),
+                          'retarder'    : (-81.,-1.),
 #                          'delay'       : (1170, 1180.0),
-                          'waveplate'   : (39.,41.)
+                          'waveplate'   : (38.,41.)
                         },
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.01,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 1200,       # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 50,       # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
@@ -179,16 +181,18 @@ print("\nDone")
 plt.figure()
 #photoline = slice(820,877)
 #photoline = evs[np.abs(evs - 107).argmin() : np.abs(evs - 102.5).argmin()]
-photoline1 = slice(np.abs(evs - 98.5).argmin() , np.abs(evs - 92).argmin())
+
+#photoline1 = slice(np.abs(evs - 98.5).argmin() , np.abs(evs - 92).argmin())
 photoline2 = slice(np.abs(evs - 100).argmin() , np.abs(evs - 98.5).argmin())
-photoline3 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin())
+#photoline3 = slice(np.abs(evs - 107).argmin() , np.abs(evs - 102.5).argmin())
+
 #print("photoline is:", photoline)
 #print("img.T[]sum() is:", img.values.T[photoline].sum(axis=0))
 
-NegPhLine, = plt.plot(delays, img.values.T[photoline3].sum(axis=0), label = 'negative photoline shift')
-PosPhLine1, = plt.plot(delays, img.values.T[photoline1].sum(axis=0), label = 'positive photoline shift 90-99 eV')
+#NegPhLine, = plt.plot(delays, img.values.T[photoline3].sum(axis=0), label = 'negative photoline shift')
+#PosPhLine1, = plt.plot(delays, img.values.T[photoline1].sum(axis=0), label = 'positive photoline shift 90-99 eV')
 PosPhLine2, = plt.plot(delays, img.values.T[photoline2].sum(axis=0), label = 'positive photoline shift 99-100 eV')
-plt.legend(handles=[PosPhLine1, PosPhLine2, NegPhLine])
+plt.legend(handles=[PosPhLine2])
 
 plt.figure()
 valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin())
