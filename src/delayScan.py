@@ -11,35 +11,39 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'third_block.h5'
+                          'trace'    : 'first_block.h5'
+                          #'trace'    : 'second_block.h5'
+                          #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
                           'fname'    : 'DelayCK2s'
                         },
-           'time'     : { 'start' : datetime(2019,4,1,1,20,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,1,52,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,21,54,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,22,1,0).timestamp(),
+           #'time'     : { 'start' : datetime(2019,4,1,1,43,0).timestamp(),
+           #               'stop'  : datetime(2019,4,1,2,56,0).timestamp(),
                         },
            'filters'  : { 'undulatorEV' : (200.,275.),
                           'retarder'    : (-81,-1),
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (35,45)
                         },
-           'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
+           'sdfilter' : "GMD > 0.5",#& BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 50,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
-           'useBAM'      : False,
-           'timeZero'    : 1257,   #Used to correct delays
+           'useBAM'      : True,
+           'timeZero'    : 1178.45,   #Used to correct delays
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
            'plots' : {
                        'delay2d'    : True,
-                       'photoShift' : False,
+                       'photoShift' : True,
                        'valence'    : False,
                        'auger2d'    : False,
-                       'fragmentSearch' : True, #Plot Auger trace at long delays to look for fragmentation
+                       'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
            },
            'writeOutput' : False, #Set to true to write out data in csv
            'onlyplot'    : False, #Set to true to load data form 'output' file and
