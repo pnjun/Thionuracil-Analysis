@@ -16,7 +16,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
            'time'     : { #'start' : datetime(2019,3,31,6,54,0).timestamp(),
                           #'stop'  : datetime(2019,3,31,6,56,0).timestamp(),
                           'start' : datetime(2019,4,1,2,51,0).timestamp(),
-                          'stop'  : datetime(2019,4,1,2,52,0).timestamp(),
+                          'stop'  : datetime(2019,4,1,2,51,10).timestamp(),
                         },
       }
 
@@ -32,26 +32,50 @@ CH = 1
 tof = h5data.select('tof1',
                      where=['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
                             'pulseId in pulses.index'] )
-
+#tof = tof.mean(level=1)
 evConv = ou.evConv()
-maxima = []
-integ =  []
-for i in range(49):
-    max = evConv[CH](tof.iloc[i::49].mean().idxmin())
-    maxima.append(max)
-    integ.append(tof.iloc[i::49].mean().sum())
-    if i % 5 == 0:
-        plt.plot( evConv[CH](tof.iloc[0].index) ,   tof.iloc[i::49].mean() + i*5 )
+
+maxIdx = tof.idxmin(axis=1)
+maxVal = tof.min(axis=1)
+maxEv = evConv[CH](maxIdx)
+integ  = (tof**2).sum(axis=1)
+
+def getFWHM(row):
+    a =  np.where(np.diff(np.signbit(row)))[0]
+    return [a[0], a[1]]
+
+
+#FWHM calulation
+boundsIdx = tof.sub( maxVal/2, axis=0 ).apply(getFWHM, axis=1, raw=True)
+boundsTof = [ tof.columns[bounds] for bounds in boundsIdx ]
+boundsEv  = [ evConv[CH](bTof) for bTof in boundsTof ]
+fwhm = np.array([ bEv[0] - bEv[1] for bEv in boundsEv ])
+
+#Invalidate clearly wrong points
+fwhm[fwhm > 4] = np.nan
+
+'''
+for n, trace in tof.iterrows():
+    if n % 5 == 0:
+        plt.plot( evConv[CH](tof.iloc[0].index) , trace + n*5 )
+'''
 
 def fit(x, m, q):
     return x*m + q
 
-x = np.array(range(len(maxima)))
-popt, pconv = curve_fit(fit, x, maxima)
+maxEv = np.array(maxEv)
+maxEv += 15.8 # Photon energy = electron energy + bounding energy
+x = np.array(range(len(maxEv)))
+popt, pconv = curve_fit(fit, x, maxEv)
 
-plt.figure()
-plt.plot(x, maxima, 'o')
-#plt.plot(x, integ)
+plt.figure('energy')
+plt.plot(x, maxEv, 'o')
 plt.plot(x, fit(x, *popt))
 print(popt)
+plt.figure('fwhm')
+plt.plot(x, fwhm)
+plt.figure('integ')
+plt.plot(x, integ)
+plt.figure('scatter')
+plt.plot(integ, fwhm, 'o')
 plt.show()

@@ -26,13 +26,16 @@ from utils import Slicer
 
 #cfguration parameters:
 cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
-                          'files'    : 'FLASH2_USER1-2019-04-0[456]*.h5'
-                          #'FLASH2_USER1-2019-0?-[30][0123789]*.h5', #, #'FLASH2_USER1-2019-03-2*.h5' ['FLASH2_USER1-2019-03-25T1115.h5'],  List of files to process or globbable string. All files must have the same number of shots
+                          'files'    : ['FLASH2_USER1-2019-03-30T2100.h5']
+                          #'FLASH2_USER1-2019-04-0[456]*.h5'
+                          #'FLASH2_USER1-2019-0?-[30][0123789]*.h5',  #'FLASH2_USER1-2019-03-2*.h5'
+                          #['FLASH2_USER1-2019-03-25T1115.h5'],
+                          #List of files to process or globbable string. All files must have the same number of shots
                         },
            'output'   : {
                           'folder'      : '/media/Fast2/ThioUr/processed/',
-                          'pulsefname'  : 'index_work.h5',
-                          'shotsfname'  : 'third_block_v2.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.
+                          'pulsefname'  : 'idOpistest2019-03-30T2100.h5',
+                          'shotsfname'  : 'trOpistest2019-03-30T2100.h5',  # use 'AUTO' for '<firstPulseId>-<lastPulseId.h5>'. Use this only when data.files is a list of subsequent shots.
                         },
            'hdf'      : { 'tofTrace'   : '/FL2/Experiment/MTCA-EXP1/ADQ412 GHz ADC/CH00/TD',
                           'retarder'   : '/FL2/Experiment/URSA-PQ/TOF/HV retarder',

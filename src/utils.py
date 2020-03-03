@@ -18,6 +18,22 @@ def filterPulses(pulses, filters):
     queryExpr = " and ".join(queryList)
     return pulses.query(queryExpr)
 
+def h5load(dfname, h5store, pulses, chunk=None):
+    '''
+        Loads data from dataframe 'dfname' from h5store,
+        only where pulseId matches the Id of pulses.
+        If chuck is passed, an iterator is returned with
+        the chunklen specified
+    '''
+    pulsesLims = (pulses.index[0], pulses.index[-1])
+    iter = True if chunk is not None else False
+    return h5store.select(dfname,
+           where= ['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
+                   'pulseId in pulses.index'],
+           iterator=iter,
+           chunksize= chunk )
+
+
 def shotsDelay(delaysData, bamData=None, shotsNum = None):
     ''' Takes an array of delays and an array of BAM values and combines them, returing an array with the same shape of bamData offset with the delay value.
     If bamData is None no bam correction is performed, an array of delaysData.shape[0] * shotsNum size is created and returned using just delayData'''
@@ -54,11 +70,13 @@ def shotsDelay(delaysData, bamData=None, shotsNum = None):
     return bam.get()
 
 
-def getDiff(tofTrace, gmd = None, integSlice = None):
+def getDiff(tofTrace, gmd = None, lowPass = None):
     '''
     Function that gets a TOF dataframe and uses CUDA to calculate pump probe difference specturm
     If GMD is not None traces are normalized on gmd before difference calculation
-    If integSlice is not none the integral of the traces over the given slicing is returned
+    If lowpass is given, a brickwall lowpass filter is applied to the data
+    before subtracting the traces. The lowpass value given will be the number
+    of harmonics removed from the signal
     '''
     from numba import cuda
     import cupy as cp
@@ -79,6 +97,13 @@ def getDiff(tofTrace, gmd = None, integSlice = None):
 
     #Get difference data
     tof = cp.array(tofTrace.to_numpy())
+
+    if lowPass is not None:
+        len = tof.shape[1]
+        tof = cp.fft.rfft(tof, axis=1)
+        tof[:,-lowPass:] *= (1-cp.arange(0,1,lowPass))
+        tof = cp.fft.irfft(tof, axis=1, n=len)
+
     if gmd is not None:
         #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
         cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
@@ -86,18 +111,61 @@ def getDiff(tofTrace, gmd = None, integSlice = None):
     else:
         tofDiff[ (tof.shape[0] // 2 , tof.shape[1] // 64) , 64 ](tof)
 
-    if integSlice is not None:
-        return pd.DataFrame( tof[::2, integSlice].sum(axis=1).get(),
-                             index = tofTrace.index[::2])
-    else:
-        return pd.DataFrame( tof[::2].get(),
-                             index = tofTrace.index[::2], columns=tofTrace.columns)
+    if tof.shape[1] == 3009:
+        #we have an extra point left there for future interpolation, drop it
+        tof[::2,-1] = 0
 
-def getROI(shotsData):
+    return pd.DataFrame( tof[::2].get(),
+                         index = tofTrace.index[::2], columns=tofTrace.columns)
+
+def getInteg(tofTrace,  integSlice, gmd = None, getDiff = False):
+    '''
+    Integrates the traces over the given slice and returns the results.
+    If GMD is not None traces are normalized on gmd before difference calculation
+    If getDiff is True, the even - odd differences are returned as well
+    '''
+    from numba import cuda
+    import cupy as cp
+
+    tof = cp.array(tofTrace.to_numpy())
+
+    if gmd is not None:
+        @cuda.jit
+        def GMDCorrect(tof, gmd):
+            row = cuda.blockIdx.x
+            col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
+            tof[ row, col ]  /= gmd[row]
+
+        cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
+        GMDCorrect[ (tof.shape[0], tof.shape[1] // 64) , 64 ](tof, cuGmd)
+
+    if tof.shape[1] == 3009:
+        #we have an extra point left there for future interpolation, drop it
+        tof[:,-1] = 0
+
+    integ = tof[:, integSlice].sum(axis=1)
+    integDF = pd.DataFrame( integ.get(), index = tofTrace.index[:])
+
+    if getDiff:
+        diffs = integ[::2] - integ[1::2]
+        diffsDF = pd.DataFrame( diffs.get(), index = tofTrace.index[::2])
+        return integDF, diffsDF
+
+    return integDF
+
+
+
+
+def getROI(shotsData, limits=None):
     ''' show user histogram of delays and get ROI boundaries dragging over the plot'''
     #Show histogram and get center point for binning
     import matplotlib.pyplot as plt
-    shotsData.delay.hist(bins=60)
+
+    if limits is not None:
+        shotsData.query('delay > @limits[0] and delay < @limits[1]').delay.hist(bins=60)
+    else:
+        shotsData.delay.hist(bins=60)
+
     def getBinStart(event):
         global binStart
         binStart = event.xdata
@@ -120,18 +188,24 @@ def plotParams(shotsData):
         Wait for user to press ESC or close the windows before continuing.
     '''
     import matplotlib.pyplot as plt
-    f1 = plt.figure()
-    f1.suptitle("Uv Power histogram\nPress esc to continue")
+    f = plt.figure(figsize=(10, 10))
+    f.suptitle("Press ESC to continue")
+    a1 = f.add_subplot(311)
+    a1.title.set_text("Uv Power histogram")
     shotsData.uvPow.hist(bins=20)
-    f2 = plt.figure()
-    f2.suptitle(f"GMD histogram\nAverage:{shotsData.GMD.mean():.2f}")
+    a2 = f.add_subplot(312)
+    a2.title.set_text(f"GMD histogram\nAverage:{shotsData.GMD.mean():.2f}")
     shotsData.GMD.hist(bins=70)
+    a3 = f.add_subplot(313)
+    a3.title.set_text("BAM histogram")
+    shotsData.BAM.hist(bins=15)
+
+    f.subplots_adjust(left=None, bottom=0.05, right=None, top=0.92, wspace=0.5, hspace=0.5)
+
     def closeFigs(event):
         if event.key == 'escape':
-            plt.close(f1)
-            plt.close(f2)
-    f1.canvas.mpl_connect('key_press_event', closeFigs)
-    f2.canvas.mpl_connect('key_press_event', closeFigs)
+            plt.close(f)
+    f.canvas.mpl_connect('key_press_event', closeFigs)
     plt.show()
 
 class mainTofEvConv:
@@ -167,7 +241,6 @@ class mainTofEvConv:
         return np.sqrt(m_over_2e) * ( l1 / np.sqrt(new_e) +
                                       l2 / np.sqrt(new_e + self.r) +
                                       l3 / np.sqrt(new_e + 300) )
-
 
 class Slicer:
     ''' Splits a ADC trace into slices given a set of slicing parameters '''
@@ -214,49 +287,20 @@ class Slicer:
         except ValueError:
             return None
 
-class evConverter:
-    ''' Converts between tof and ev for a given retardation voltage
-        Units are volts, electronvolts and microseconds
-        Retarder must be a vectorized callable with the lenght and maxV attributes.
-        Use the classmethods to create a converted already calibrated for the main tof
-        or the OPIS tofs
+class beamTimeEvConv:
+    ''' EV CONVERSION USED AT THE BEAMTIME. IT IS WRONG
     '''
-    def __init__(self, retarder, lenght, evMin, evMax, evStep):
-        print("# WARNING: evConverter is deprecated and will be removed. Use mainTofEvConv")
+    def __init__(self, retarder):
         self.r = retarder
-        self.l = lenght
-
-        evRange = np.arange(evMin, evMax, evStep)
-        tofVals = [ self.ev2tof(ev) for ev in evRange ]
-        self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
-
-    @classmethod
-    def mainTof(cls, retarder, mcp = None, evOffset = 0.6):
-        ''' Defines the potential model for the TOF spectrometer
-            offset is a global 'retardation' we apply for absolutely no reason
-            except that it makes the calibration better.
-        '''
-        if mcp is None: mcp = retarder
-
-        def potential(x):
-            if   x < 0.05:               #free flight before retarder lens
-                return -evOffset
-            elif x < 1.784:               #flight inside tube
-                return -evOffset + retarder
-            else:                         #acceleration before MCP
-                return -evOffset + mcp
-        #retarder is negative! => we want electron energies above -retarder [eV]
-        return cls(potential, 1.787, -retarder+evOffset+2, -retarder+evOffset+350, 1)
 
     def __call__(self, tof):
-        return self.interpolator(tof)
-
-    def ev2tof(self, e):
-        return integ.quad( lambda x : self._integrand(x,e), 0, self.l)[0]
-
-    def _integrand(self, x, en):
+        if isinstance(tof, pd.Index):
+            tof = tof.to_numpy(dtype=np.float32)
+        s = 1.7
         m_over_e = 5.69
-        return np.sqrt( m_over_e / 2 / ( en + self.r(x) ) ) # energy + retarder because retarder is negative!'''
+
+        # UNITS AND ORDERS OF MAGNITUDE DO CHECK OUT
+        return 0.5 * m_over_e * ( s / tof )**2 - self.r
 
 
 CUSTOM_BINS_RIGHT = np.array(
