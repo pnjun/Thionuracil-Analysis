@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 from attrdict import AttrDict
+from matplotlib import gridspec
 #from utils import mainTofEvConv
 
 import utils
@@ -38,13 +39,14 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
            'spectrumAnalizer' : False,
            'writeOutput' : True,  #Set to true to write out data in csv
+           'AugerROI'    : (130,155),
 
 
-
-           'onlyplot'    : False, #Set to true to load data form 'output' file and
+           'onlyplot'    : False , #Set to true to load data form 'output' file and
                                  #plot only.
            'plots' : { 'uv2d'           : True,
-                       'fragmentSearch' : True,
+                       'AugerIntegral'  : True,
+                       'fragmentSearch' : False,
                        'lowPassTest'    : False,
            },
 
@@ -186,29 +188,17 @@ if not cfg.onlyplot:
 # make dataframe and save data
 if cfg.writeOutput and not cfg.onlyplot:
     print("Writing output...")
-    df = pd.DataFrame(data = diffAcc).fillna(0)
-    df.to_csv(cfg.output.path + cfg.output.fname + "_diff.csv")
-    df = pd.DataFrame(data = evenAcc).fillna(0)
-    df.to_csv(cfg.output.path + cfg.output.fname + "_even.csv")
-    df = pd.DataFrame(data = oddAcc).fillna(0)
-    df.to_csv(cfg.output.path + cfg.output.fname + "_odd.csv")
-    df = pd.DataFrame(data = binList).fillna(0)
-    df.to_csv(cfg.output.path + cfg.output.fname + "_bins.csv")
-    df = pd.DataFrame(data = evs).fillna(0)
-    df.to_csv(cfg.output.path + cfg.output.fname + "_evs.csv")
+    np.savez(cfg.output.path + cfg.output.fname,
+            diffAcc = diffAcc, evenAcc = evenAcc, oddAcc=oddAcc, binList=binList, evs=evs)
 
 if cfg.onlyplot:
     print("Reading data...")
-    diffAcc= pd.read_csv(cfg.output.path + cfg.output.fname + "_diff.csv").to_numpy()
-    evenAcc= pd.read_csv(cfg.output.path + cfg.output.fname + "_even.csv").to_numpy()
-    oddAcc = pd.read_csv(cfg.output.path + cfg.output.fname + "_odd.csv").to_numpy()
-    binList= pd.read_csv(cfg.output.path + cfg.output.fname + "_bins.csv").to_numpy()
-    evs = pd.read_csv(cfg.output.path + cfg.output.fname + "_evs.csv").to_numpy()
-    diffAcc = diffAcc[:,1:]
-    evenAcc = evenAcc[:,1:]
-    oddAcc  = oddAcc[:,1:]
-    evs = evs[:,1]
-    binList = binList[:,1]
+    dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
+    diffAcc = dataZ['diffAcc']
+    evenAcc = dataZ['evenAcc']
+    oddAcc  = dataZ['oddAcc']
+    evs     = dataZ['evs']
+    binList = dataZ['binList']
 
 print('Plotting...')
 
@@ -223,7 +213,23 @@ if cfg.spectrumAnalizer:
 
 #plot resulting image
 if cfg.plots.uv2d:
-    plt.figure()
+    f = plt.figure()
+
+    if cfg.plots.AugerIntegral:
+        ROIslice = slice( np.abs(evs - cfg.AugerROI[1]).argmin() ,
+                          np.abs(evs - cfg.AugerROI[0]).argmin() )
+
+        gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1])
+        ax1 = f.add_subplot(gs[1])
+
+        plt.ylabel("Integrated Auger Intensity")
+        plt.xlabel("Uv Power")
+        plt.setp(ax1.get_yticklabels(), visible=False)
+        plt.tick_params(axis='y', labelsize=0, length = 0)
+        plt.plot(diffAcc[:,ROIslice].sum(axis=1), binList)
+
+        f.add_subplot(gs[0])
+
     cmax = np.max(np.abs(diffAcc))
     edges = np.append(binList,binList[-1]+cfg.uvBinStep)
     plt.pcolormesh(evs, edges ,diffAcc, cmap='bwr', vmax=cmax, vmin=-cmax)
@@ -232,7 +238,6 @@ if cfg.plots.uv2d:
     plt.ylabel("Uv Power")
     plt.tight_layout()
     #plt.savefig(cfg.output.path + cfg.output.fname)
-    #plt.savefig(f'output-{cfg.time.start}-{cfg.time.stop}')
 
 if cfg.plots.fragmentSearch:
     from matplotlib.widgets import Slider
