@@ -13,33 +13,33 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'third_block.h5'
+                          'trace'    : 'second_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'energyScanDifferenceSpol'
+                          'fname'    : 'energyScan_2S_P_2ps_highUv_EKinNorm'
                         },
-           'time'     : { 'start' : datetime(2019,4,6,16,22,0).timestamp(),
-                          'stop'  : datetime(2019,4,6,18,50,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,31,1,43,0).timestamp(),
+                          'stop'  : datetime(2019,3,31,3,48,0).timestamp(),
                         },
            'filters'  : {'retarder'    : (-15,5),
-                          'waveplate'   : (12,14),
-                          #'delay'       : (1259.3, 1260.3)
-                          'delay'       : (1261.1, 1261.3)
+                          'waveplate'  : (10,15),
+                          'delay'      : (1255.0, 1255.5)
                         },
-           'sdfilter' : "GMD > 0.5", # filter for shotsdata parameters used in query method
+           'sdfilter' : "GMD > 2.5", # filter for shotsdata parameters used in query method
 
            'ioChunkSize' : 50000,
-           'gmdNormalize': True,
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
+           'gmdNormalize'      : False,
+           'highEKinNormalize' : True, #Set to true to use average of high Ekin  (>270) signal to normalize traces
 
            'onlyOdd'     : False, #Set to true if ony odd shots should be used, otherwise all shots are used
            'difference'  : True, #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
-           'timeZero'    : 1261.7,   #Used to correct delays
+           'timeZero'    : 1257.2,   #Used to correct delays
 
            'plots' : {
                        'energy2d'      : (0, 250),
-                       'ROIIntegral'   : (100, 200),
-                       'uvtext'        : ""
+                       'ROIIntegral'   : (100, 180),
+                       'uvtext'        : "(P pol, High Uv, 2ps delay)"
            },
            'writeOutput' : True, #Set to true to write out data in csv
            'onlyplot'    : True, #Set to true to load data form 'output' file and
@@ -136,14 +136,19 @@ if not cfg.onlyplot:
 
     # make dataframe and save data
     if cfg.writeOutput:
-        df = pd.DataFrame(data = traceAcc, columns=evs, index=energy).fillna(0)
-        df.to_csv(cfg.output.path + cfg.output.fname + ".csv", mode="w")
+        np.savez(cfg.output.path + cfg.output.fname,
+                 traceAcc = traceAcc, energy = energy, evs=evs)
 
 if cfg.onlyplot:
-    df = pd.read_csv(cfg.output.path + cfg.output.fname + ".csv", index_col=0)
-    traceAcc = df.to_numpy()
-    evs = df.columns.to_numpy(dtype=np.float32)
-    energy = df.index.to_numpy()
+    print("Reading data...")
+    dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
+    traceAcc = dataZ['traceAcc']
+    energy   = dataZ['energy']
+    evs      = dataZ['evs']
+
+if cfg.highEKinNormalize:
+    NormROI = slice( None , np.abs(evs - 270).argmin() )
+    traceAcc /= traceAcc[:,NormROI].sum(axis=1)[:,None]
 
 #plot resulting image
 if cfg.plots.energy2d:
@@ -164,6 +169,9 @@ if cfg.plots.energy2d:
         integ -= integ[:2].mean()
         integ /= np.linalg.norm(integ)
 
+        plt.setp(ax1.get_yticklabels(), visible=False)
+        plt.tick_params(axis='y', labelsize=0, length = 0)
+
         plt.plot(integ, energy)
         if cfg.difference:
             plt.xlabel("Integrated Differential Intensity")
@@ -174,12 +182,12 @@ if cfg.plots.energy2d:
         f.subplots_adjust(left=0.08, bottom=0.07, right=0.96, top=0.95, wspace=None, hspace=0.05)
 
     if cfg.difference:
-        plt.suptitle(f"Kinetic Energy vs Photon  Energy {cfg.plots.uvtext}")
+        plt.suptitle(f"Kinetic Energy vs Photon Energy {cfg.plots.uvtext}")
         cmax = np.percentile(np.abs(traceAcc),99.5)
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
                        cmap='bwr', vmax=cmax, vmin=-cmax)
     else:
-        plt.suptitle("Kinetic Energy vs Photon  Energy.")
+        plt.suptitle("Kinetic Energy vs Photon Energy")
         cmax = np.percentile(np.abs(traceAcc[:,ROI]),91)
         cmin = np.percentile(np.abs(traceAcc[:,ROI]),12)
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
@@ -189,10 +197,11 @@ if cfg.plots.energy2d:
     plt.ylabel("Photon energy (eV)")
 
     if cfg.difference:
-        cb = plt.colorbar()
+        cb = plt.colorbar( orientation="vertical",fraction=0.06,anchor=(1.0,0.0) )
+
         ticks = cb.ax.yaxis.get_ticklabels()
-        ticks[0] = 'pump depleted'
-        ticks[-1] = 'pump enhanced'
+        ticks[0] = 'pump\ndepleted'
+        ticks[-1] = 'pump\nenhanced'
         cb.ax.set_yticklabels(ticks)
 
 plt.show()
