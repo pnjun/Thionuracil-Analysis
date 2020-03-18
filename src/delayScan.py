@@ -16,39 +16,39 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'DelayCK2s'
+                          'fname'    : 'DelayScan270Quant30'
                         },
-           #'time'     : { 'start' : datetime(2019,3,26,21,54,0).timestamp(),
-           #               'stop'  : datetime(2019,3,26,22,1,0).timestamp(),
-           'time'     : { 'start' : datetime(2019,3,26,22,50,0).timestamp(),
-                          'stop'  : datetime(2019,3,26,22,58,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(),
+                          'stop'  : datetime(2019,3,28,7,7,0).timestamp(),
            #'time'     : { 'start' : datetime(2019,4,1,1,43,0).timestamp(),
            #               'stop'  : datetime(2019,4,1,2,56,0).timestamp(),
                         },
-           'filters'  : { 'undulatorEV' : (200.,275.),
+           'filters'  : { 'undulatorEV' : (260.,275.),
                           'retarder'    : (-81,-1),
                           #'delay'       : (1170, 1185.0),
-                          'waveplate'   : (35,45)
+                          'waveplate'   : (6,11)
                         },
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 50,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 30,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1178.45,   #Used to correct delays
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
+           'augerROI'    : (110,170),
            'plots' : {
-                       'delay2d'    : True,
-                       'photoShift' : True,
+                       'delay2d'    : False,
+                       'photoShift' : False,
+                       'augerShift' : True,
+                       'auger2d'    : True,
                        'valence'    : False,
-                       'auger2d'    : False,
                        'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
            },
-           'writeOutput' : False, #Set to true to write out data in csv
-           'onlyplot'    : False, #Set to true to load data form 'output' file and
+           'writeOutput' : True, #Set to true to write out data in csv
+           'onlyplot'    : True, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
@@ -190,14 +190,14 @@ if not cfg.onlyplot:
 
     # make dataframe and save data
     if cfg.writeOutput:
-        df = pd.DataFrame(data = diffAcc,columns=evs, index=delays).fillna(0)
-        df.to_csv(cfg.output.path + cfg.output.fname + ".csv", mode="w")
+        np.savez(cfg.output.path + cfg.output.fname,
+                 diffAcc = diffAcc, evs=evs, delays=delays)
 
 if cfg.onlyplot:
-    df = pd.read_csv(cfg.output.path + cfg.output.fname + ".csv", index_col=0)
-    diffAcc = df.to_numpy()
-    evs = df.columns.to_numpy(dtype=np.float32)
-    delays = df.index.to_numpy()
+    dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
+    diffAcc = dataZ['diffAcc']
+    delays = dataZ['delays']
+    evs    = dataZ['evs']
 
 #plot resulting image
 if cfg.plots.delay2d:
@@ -210,8 +210,34 @@ if cfg.plots.delay2d:
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
 
+if cfg.plots.augerShift:
+    #Slice Traces over Auger ROI
+    ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
+    sliced = diffAcc[:, ROI]
+    len = sliced.shape[1]
+
+    #Calulates cross correlation between each row of a and b
+    def xCorr(a, b):
+        return np.fft.irfft( np.fft.rfft(a) * np.conj( np.fft.rfft(b) ) , n=len)
+
+    #Offset traces so that they are on average centered around 0 (using start and end data)
+    avg = len // 10
+    offset = ( sliced[:,:avg].mean(axis = 1) + sliced[:,-avg:].mean(axis = 1) ) / 2
+    sliced -= offset[:,None]
+
+    #Find 0 crossing by maximizing the cross correlation between
+    #the traces and sign function
+    A = np.zeros(sliced.shape) + np.arange(len)
+    sign = np.sign( A - len//2 )
+    corr = xCorr(sliced, sign)
+    maxidx = corr.argmax(axis=1)
+    max = evs[ROI.start + maxidx]
+
+    plt.figure(figsize=(9, 7))
+    plt.plot(delays, max)
+
 if cfg.plots.auger2d:
-    ROI = slice(np.abs(evs - 160).argmin() , np.abs(evs - 120).argmin())
+    ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
     plt.figure(figsize=(9, 7))
     plt.suptitle("Auger Kinetic Energy vs Delay.")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
@@ -253,7 +279,6 @@ if cfg.plots.valence:
     plt.figure()
     valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin())
     plt.plot(delays, diffAcc.T[valence].sum(axis=0))
-
 
 
 if cfg.plots.fragmentSearch and not cfg.onlyplot:
