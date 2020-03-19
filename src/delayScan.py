@@ -4,6 +4,7 @@ import numpy as np
 from datetime import datetime
 from attrdict import AttrDict
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
 import sys
 import utils
 
@@ -38,13 +39,14 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'timeZero'    : 1178.45,   #Used to correct delays
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
-           'augerROI'    : (110,170),
+           'augerROI'    : (120,160),
            'plots' : {
-                       'delay2d'    : False,
-                       'photoShift' : False,
-                       'augerShift' : True,
-                       'auger2d'    : True,
-                       'valence'    : False,
+                       'delay2d'        : False,
+                       'photoShift'     : False,
+                       'auger2d'        : True,
+                       'augerShift'     : True,
+                       'augerIntensity' : True,
+                       'valence'        : False,
                        'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
            },
            'writeOutput' : True, #Set to true to write out data in csv
@@ -214,11 +216,12 @@ if cfg.plots.augerShift:
     #Slice Traces over Auger ROI
     ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
     sliced = diffAcc[:, ROI]
+    slicedEvs = evs[ROI]
     len = sliced.shape[1]
 
     #Calulates cross correlation between each row of a and b
     def xCorr(a, b):
-        return np.fft.irfft( np.fft.rfft(a) * np.conj( np.fft.rfft(b) ) , n=len)
+        return np.fft.irfft( np.fft.rfft(a) * np.conj( np.fft.rfft(b) ), n=len)
 
     #Offset traces so that they are on average centered around 0 (using start and end data)
     avg = len // 10
@@ -230,15 +233,46 @@ if cfg.plots.augerShift:
     A = np.zeros(sliced.shape) + np.arange(len)
     sign = np.sign( A - len//2 )
     corr = xCorr(sliced, sign)
-    maxidx = corr.argmax(axis=1)
-    max = evs[ROI.start + maxidx]
+    zeroXidx = corr.argmax(axis=1)
+    zeroX = slicedEvs[zeroXidx]
+
+    #Get first moments for positive and negative sides
+    posCenter = np.empty(diffAcc.shape[0])
+    negCenter = np.empty(diffAcc.shape[0])
+    for n, weights in enumerate(sliced):
+        negCenter[n] = np.average(slicedEvs[zeroXidx[n]:], weights=weights[zeroXidx[n]:])
+        posCenter[n] = np.average(slicedEvs[:zeroXidx[n]], weights=weights[:zeroXidx[n]])
+    avgCenter = ( posCenter + negCenter ) / 2
 
     plt.figure(figsize=(9, 7))
-    plt.plot(delays, max)
+    plt.plot(delays, zeroX, label='zero crossing')
+    plt.plot(delays, posCenter, label='positive center')
+    plt.plot(delays, negCenter, label='negative center')
+    plt.plot(delays, avgCenter, label='center average')
+    plt.legend()
 
 if cfg.plots.auger2d:
     ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
-    plt.figure(figsize=(9, 7))
+
+    f = plt.figure(figsize=(11, 7))
+    if cfg.plots.augerIntensity:
+        gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1])
+        ax1 = f.add_subplot(gs[1])
+
+        #Normalize and shift intensity
+        integ = diffAcc[:,ROI].sum(axis=1)
+        integ -= integ[:2].mean()
+        integ /= np.linalg.norm(integ)
+
+        plt.setp(ax1.get_yticklabels(), visible=False)
+        plt.tick_params(axis='y', labelsize=0, length = 0)
+
+        plt.plot(integ,delays)
+        plt.xlabel(f"Integrated Auger Intensity")
+        plt.legend()
+        f.add_subplot(gs[0], sharey=ax1)
+        f.subplots_adjust(left=0.08, bottom=0.07, right=0.96, top=0.95, wspace=None, hspace=0.05)
+
     plt.suptitle("Auger Kinetic Energy vs Delay.")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
     plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
