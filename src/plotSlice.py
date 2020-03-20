@@ -11,8 +11,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'third_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,4,6,2,13,0).timestamp(),
-                          'stop'  : datetime(2019,4,6,2,15,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,7,55,0).timestamp(),
+                          'stop'  : datetime(2019,4,5,8,0,0).timestamp(),
                         }
       }
 cfg = AttrDict(cfg)

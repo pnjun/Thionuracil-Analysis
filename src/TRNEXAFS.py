@@ -15,12 +15,13 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'multiplotTRNEXAFS6binsGMD'
+                          'fname'    : 'TRNEXAFS_2s_Integ_NoGMD'
                         },
-           'time'     : { 'start' : datetime(2019,4,5,20,59,0).timestamp(),
-                          'stop'  : datetime(2019,4,6,5,13,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,1,50,0).timestamp(),
+                          'stop'  : datetime(2019,4,5,8,11,0).timestamp(),
                         },
-           'filters'  : { 'undulatorEV' : (160.,173),
+           'adHocFilter' : True, #FILTERS OUT A BOTCHED TIMEZEROSCAN WHEN ANALYIZING 2S DATA( 5.4.19 1:50 TO 8:11 )
+           'filters'  : { 'undulatorEV' : (210.,230),
                           'retarder'    : (-11,-9),
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (12,14)
@@ -28,23 +29,23 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 6,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 25,      # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
-           'gmdNormalize': True,
+           'gmdNormalize': False,
            'useBAM'      : True,
-           'timeZero'    : 1261.7,   #Used to correct delays
+           'timeZero'    : 1260.3,     #Used to correct delays
 
            #either MULTIPLOT for one nexafs 2d plot per dealay
            #or INTEGRAL for one single 2dplot with integrated data over ROI
-           'mode'        : 'MULTIPLOT',
+           'mode'        : 'INTEGRAL',
            'integROIeV'  : (100,180),
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
            'plots' : {   'rescaleDiffs': False, #SET to reset the 0-difference point to the UV late signal average
 
                          'trnexafs'    : True,
-                         'traceDelay'  : 1,     # Plots the NEXAFS traces for negative (earliest) vs positive delay (specified delay)
-                         'diffHist'    : True
+                         'traceDelay'  : None,    #[ps] Plots the NEXAFS traces for negative (earliest) vs positive delay (specified delay)
+                         'diffHist'    : False
            },
            'writeOutput' : True, #Set to true to write out data in csv
            'onlyplot'    : True, #Set to true to load data form 'output' file and
@@ -59,8 +60,12 @@ if not cfg.onlyplot:
 
     #Get all pulses within time limits
     pulses = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
+
     #Filter only pulses with parameters in range
     fpulses = utils.filterPulses(pulses, cfg.filters)
+
+    if cfg.adHocFilter:
+        fpulses = fpulses.query('undulatorEV < 221.99 or undulatorEV > 222.01')
 
     #Get corresponing shots
     if(not len(fpulses)):
@@ -85,7 +90,7 @@ if not cfg.onlyplot:
     utils.plotParams(shotsData)
 
     uvEven = shotsData.query("shotNum % 2 == 0").uvPow.mean()
-    uvOdd = shotsData.query("shotNum % 2 == 1").uvPow.mean()
+    uvOdd  = shotsData.query("shotNum % 2 == 1").uvPow.mean()
 
     if uvEven > uvOdd:
         print("Even shots are UV pumped.")
@@ -117,6 +122,8 @@ if not cfg.onlyplot:
     shotsCount = shotsData.shape[0]*2
     print(f"Loading {shotsCount} shots")
 
+    #Energy binning
+    energyBins = pulses.groupby( 'undulatorEV' )
 
     #chose binning dependent on delaybin_mode
     if cfg.delayBin_mode == 'CUSTOM': # insert your binning intervals here
@@ -133,14 +140,12 @@ if not cfg.onlyplot:
         #Bin data on delay
         if cfg.delayBin_mode == 'CONSTANT':
             delayBins = shotsData.groupby( pd.cut( shotsData.delay,
-                                              np.arange(binStart, binEnd, cfg.delayBTrueinStep) ) )
+                                              np.arange(binStart, binEnd, cfg.delayBinStep) ) )
         elif cfg.delayBin_mode == 'QUANTILE':
        	    shotsData = shotsData[ (shotsData.delay > binStart) & (shotsData.delay < binEnd) ]
        	    delayBins = shotsData.groupby( pd.qcut( shotsData.delay, cfg.delayBinNum ) )
         else:
             raise Exception("binning mode not valid")
-
-    energyBins = pulses.groupby( 'undulatorEV' )
 
     delays = np.array( [name.mid for name, _ in delayBins] )
     energy = np.array( [name for name, _ in energyBins] )
@@ -194,18 +199,16 @@ if not cfg.onlyplot:
                 diffTrace = diffDelayBinTrace.query('pulseId in @energyGroup.index')
                 # - sign is because signal is negative
                 diffAcc[energyIdx, delayIdx] += -diffTrace.sum().to_numpy()
-
                 if cfg.mode == 'INTEGRAL':
                     pumpTrace = pumpDelayBinTrace.query('pulseId in @energyGroup.index')
                     pumpAcc[energyIdx, delayIdx] += -pumpTrace.sum().to_numpy()
                 binCount[energyIdx, delayIdx] += diffTrace.shape[0]
 
-
     idx.close()
     tr.close()
 
     diffAcc /= binCount
-    if uvOdd > uvEven: diffAcc *= -1
+    #if uvOdd > uvEven: diffAcc *= -1
 
     if cfg.mode == 'INTEGRAL': pumpAcc /= binCount
 
@@ -242,27 +245,32 @@ if cfg.plots.trnexafs and 'pumpAcc' in globals(): #Plot style for INTEGRAL mode
 
         #diff acc is created subtracting pump - unpumped. Therefore the umpumped is pump - diff
         plt.plot(energy, pumpAcc[:,delayIdx] - diffAcc[:,delayIdx], label="UV Off")
-        plt.plot(energy, pumpAcc[:,delayIdx], Truelabel=f"UV On @ {delays[delayIdx]:.4}ps delay")
+        plt.plot(energy, pumpAcc[:,delayIdx], label=f"UV On @ {delays[delayIdx]:.4}ps delay")
         plt.ylabel(f"Integrated Auger")
         plt.legend()
         f.add_subplot(gs[1], sharex=ax1)
-        f.subplots_adjust(left=0.12, bottom=0.05, right=0.95, top=0.95, wspace=None, hspace=0.14)
+        f.subplots_adjust(left=0.12, bottom=0.11, right=0.95, top=0.95, wspace=None, hspace=0.14)
 
     eStep = energy[1] - energy[0]
     yenergy = [e - eStep/2 for e in energy ] + [ energy[-1] + eStep/2 ]
     xdelays = [d for d in delays]  + [ delays[-1] + (delays[-1] - delays[-2]) ] #Assume last bin is a wide as second to last
 
     plt.suptitle(f"Integrated Auger Signal {cfg.integROIeV[0]}:{cfg.integROIeV[1]} eV")
-    cmax = np.percentile(np.abs(diffAcc),99.5)
+    cmax = np.nanpercentile(np.abs(diffAcc),98)
 
-    plt.pcolormesh(yenergy,xdelays, diffAcc.T,
+    im = plt.pcolormesh(yenergy,xdelays, diffAcc.T,
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Undulator Energy (eV)")
     plt.ylabel("Delay (ps)")
-    plt.colorbar(orientation="horizontal", fraction = 0.05 ,pad=0.1)
+    cbar_ax = f.add_axes([0.12, 0.04, 0.8, 0.02])
+    plt.colorbar(im, cax=cbar_ax, orientation='horizontal')
+    ticks = cbar_ax.xaxis.get_ticklabels()
+    ticks[0] = 'pump depleted'
+    ticks[-1] = 'pump enhanced'
+    cbar_ax.set_xticklabels(ticks)
 
 
-if cfg.plots.trnexafs and 'evs' in globals(): #Plot style for MULTIPLOT mode
+if cfg.plots.trnexafs and 'pumpAcc' not in globals(): #Plot style for MULTIPLOT mode
     plotGridX = int(np.ceil(np.sqrt(delays.size)))
     plotGridY = int(np.ceil( delays.size / plotGridX ))
 
@@ -276,7 +284,7 @@ if cfg.plots.trnexafs and 'evs' in globals(): #Plot style for MULTIPLOT mode
     f = plt.figure(figsize=(13, 10))
     gs = gridspec.GridSpec(plotGridY, plotGridX)
 
-    cmax = np.percentile(np.abs(diffAcc),99)
+    cmax = np.nanpercentile(np.abs(diffAcc),98)
     for n in range(delays.size):
         ax = f.add_subplot(gs[n])
         ax.title.set_text(f'Delay {delays[n]:.3}')
