@@ -5,6 +5,9 @@ from datetime import datetime
 from attrdict import AttrDict
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
+import matplotlib.ticker as tck
+from scipy.optimize import curve_fit
+
 import sys
 import utils
 
@@ -43,9 +46,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : True,
+                       'auger2d'        : False,
+                          'augerIntensity' : True, #Only used when auger 2d is true
                        'augerShift'     : True,
-                       'augerIntensity' : True,
+                          'augerShiftErr'  : True, #Only used when auger shift is true
                        'valence'        : False,
                        'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
            },
@@ -236,20 +240,46 @@ if cfg.plots.augerShift:
     zeroXidx = corr.argmax(axis=1)
     zeroX = slicedEvs[zeroXidx]
 
+    if cfg.plots.augerShiftErr:
+        fitROI = slice(np.abs(slicedEvs - 147).argmin() , np.abs(slicedEvs - 128).argmin())
+        def gauss(x, center, fwhm):
+            return np.exp( - 4*np.log(2.)*(x-center)**2/fwhm**2)
+        def fit(x, o, a1,a2,a3,c1,c2,c3,f1,f2,f3):
+            return o + a1*gauss(x,c1,f1) + a2*gauss(x,c2,f2) + a3*gauss(x,c3,f3)
+
+        ID = int(sys.argv[1])
+        popt, pconv  = curve_fit(fit, slicedEvs[fitROI], corr[ID,fitROI], p0=[-32,30,30,30,128,134,139,5,5,5])
+        print(popt)
+        plt.figure()
+        plt.plot(slicedEvs, corr[ID])
+        plt.plot(slicedEvs, fit(slicedEvs, *popt))
+
+
     #Get first moments for positive and negative sides
     posCenter = np.empty(diffAcc.shape[0])
     negCenter = np.empty(diffAcc.shape[0])
+    avgDiff   = np.empty(diffAcc.shape[0]) #Difference in pos - neg avg signal
     for n, weights in enumerate(sliced):
         negCenter[n] = np.average(slicedEvs[zeroXidx[n]:], weights=weights[zeroXidx[n]:])
         posCenter[n] = np.average(slicedEvs[:zeroXidx[n]], weights=weights[:zeroXidx[n]])
+        avgDiff[n] = slicedEvs[:zeroXidx[n]].mean() - slicedEvs[zeroXidx[n]:].mean()
     avgCenter = ( posCenter + negCenter ) / 2
 
-    plt.figure(figsize=(9, 7))
+    f= plt.figure(figsize=(9, 7))
+    gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
+    ax1 = f.add_subplot(gs[0])
     plt.plot(delays, zeroX, label='zero crossing')
     plt.plot(delays, posCenter, label='positive center')
     plt.plot(delays, negCenter, label='negative center')
     plt.plot(delays, avgCenter, label='center average')
+    ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
+    plt.xlabel("delay [ps]")
+    plt.ylabel("peak position [eV]")
     plt.legend()
+    ax1 = f.add_subplot(gs[1], sharex=ax1)
+    plt.xlabel("delay [ps]")
+    plt.ylabel("Pos Avg - Neg Avg [au]")
+    plt.plot(delays, avgDiff)
 
 if cfg.plots.auger2d:
     ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
