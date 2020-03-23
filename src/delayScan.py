@@ -20,7 +20,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'DelayScan270Quant30'
+                          'fname'    : 'bootstrapTest'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(),
                           'stop'  : datetime(2019,3,28,7,7,0).timestamp(),
@@ -32,6 +32,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (6,11)
                         },
+
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
@@ -42,6 +43,9 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'timeZero'    : 1178.45,   #Used to correct delays
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
+           'bootstrap'   : True,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
+                                  #Set to None for everything else
+
            'augerROI'    : (120,160),
            'plots' : {
                        'delay2d'        : False,
@@ -49,9 +53,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                        'auger2d'        : False,
                           'augerIntensity' : True, #Only used when auger 2d is true
                        'augerShift'     : True,
-                          'augerShiftErr'  : True, #Only used when auger shift is true
                        'valence'        : False,
-                       'fragmentSearch' : False, #Plot Auger trace at long delays to look for fragmentation
            },
            'writeOutput' : True, #Set to true to write out data in csv
            'onlyplot'    : True, #Set to true to load data form 'output' file and
@@ -59,6 +61,11 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
       }
 
 cfg = AttrDict(cfg)
+
+if cfg.bootstrap:
+    if cfg.plots.delay2d or cfg.plots.photoShift or cfg.plots.auger2d or cfg.plots.valence == True:
+        print("Bootstrap mode can be used only for augerShift")
+        exit()
 
 if not cfg.onlyplot:
     idx = pd.HDFStore(cfg.data.path + cfg.data.index, mode = 'r')
@@ -153,10 +160,6 @@ if not cfg.onlyplot:
     diffAcc = np.zeros( ( len(bins), 3009 ))
     binCount = np.zeros( len(bins) )
 
-    if cfg.plots.fragmentSearch:
-        evenAcc = np.zeros( ( len(bins), 3009 ))
-        oddAcc  = np.zeros( ( len(bins), 3009 ))
-
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
         print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}",
@@ -168,12 +171,6 @@ if not cfg.onlyplot:
             binIdx = shotsDiff.index.intersection(group.index)
             binTrace = shotsDiff.reindex(binIdx)
 
-            if cfg.plots.fragmentSearch:
-                even = chunk.query('shotNum % 2 == 0')
-                odd =  chunk.query('shotNum % 1 == 0')
-                odd.index = odd.index.set_levels(odd.index.levels[1] - 1, level=1)
-                evenAcc[binId] += even.reindex(binIdx).sum(axis=0)
-                oddAcc[binId]  += odd.reindex(binIdx).sum(axis=0)
             diffAcc[binId] += binTrace.sum(axis=0)
             binCount[binId] += binTrace.shape[0]
 
@@ -181,10 +178,6 @@ if not cfg.onlyplot:
     tr.close()
 
     diffAcc /= binCount[:,None]
-    if cfg.plots.fragmentSearch:
-        evenAcc /= binCount[:,None]
-        oddAcc /= binCount[:,None]
-
     if uvEven > uvOdd: diffAcc *= -1
 
     #get axis labels
@@ -239,21 +232,6 @@ if cfg.plots.augerShift:
     corr = xCorr(sliced, sign)
     zeroXidx = corr.argmax(axis=1)
     zeroX = slicedEvs[zeroXidx]
-
-    if cfg.plots.augerShiftErr:
-        fitROI = slice(np.abs(slicedEvs - 147).argmin() , np.abs(slicedEvs - 128).argmin())
-        def gauss(x, center, fwhm):
-            return np.exp( - 4*np.log(2.)*(x-center)**2/fwhm**2)
-        def fit(x, o, a1,a2,a3,c1,c2,c3,f1,f2,f3):
-            return o + a1*gauss(x,c1,f1) + a2*gauss(x,c2,f2) + a3*gauss(x,c3,f3)
-
-        ID = int(sys.argv[1])
-        popt, pconv  = curve_fit(fit, slicedEvs[fitROI], corr[ID,fitROI], p0=[-32,30,30,30,128,134,139,5,5,5])
-        print(popt)
-        plt.figure()
-        plt.plot(slicedEvs, corr[ID])
-        plt.plot(slicedEvs, fit(slicedEvs, *popt))
-
 
     #Get first moments for positive and negative sides
     posCenter = np.empty(diffAcc.shape[0])
@@ -343,28 +321,5 @@ if cfg.plots.valence:
     plt.figure()
     valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin())
     plt.plot(delays, diffAcc.T[valence].sum(axis=0))
-
-
-if cfg.plots.fragmentSearch and not cfg.onlyplot:
-    from matplotlib.widgets import Slider
-    f = plt.figure()
-
-    diffPlot, = plt.plot(evs,diffAcc[-1], label='diffs')
-    evenPlot, = plt.plot(evs,evenAcc[-1], label='even')
-    oddPlot,  = plt.plot(evs,oddAcc[-1], label='odd')
-    #plt.plot(evs,diffAcc.values[0])
-    f.suptitle(delays[-1])
-    def update(val):
-        n = int(val)
-        diffPlot.set_ydata(diffAcc[n])
-        evenPlot.set_ydata(evenAcc[n])
-        oddPlot.set_ydata(oddAcc[n])
-
-        f.suptitle(delays[n])
-        f.canvas.draw_idle()
-
-    slax = plt.axes([0.1, 0.03, 0.65, 0.04])
-    slider = Slider(slax, 'Amp', 0, diffAcc.shape[0]-1, valinit=0)
-    slider.on_changed(update)
 
 plt.show()
