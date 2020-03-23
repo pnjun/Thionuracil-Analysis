@@ -15,25 +15,28 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'TRNEXAFS_2s_Integ_NoGMD'
+                          'fname'    : 'TRNEXAFS_2p_Integ_pPol_NoGMD'
                         },
-           'time'     : { 'start' : datetime(2019,4,5,1,50,0).timestamp(),
-                          'stop'  : datetime(2019,4,5,8,11,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,20,59,0).timestamp(),
+                          'stop'  : datetime(2019,4,6,18,50,0).timestamp(),
                         },
-           'adHocFilter' : True, #FILTERS OUT A BOTCHED TIMEZEROSCAN WHEN ANALYIZING 2S DATA( 5.4.19 1:50 TO 8:11 )
-           'filters'  : { 'undulatorEV' : (210.,230),
+           'adHocFilter' : False, #A couple of ad-hoc filters
+           'sPolFilter'  : True,
+           'filters'  : { 'undulatorEV' : (160.,173),
                           'retarder'    : (-11,-9),
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (12,14)
                         },
-           'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
+
+           # filter for shotsdata parameters used in query method
+           'sdfilter' : "uvPow > 20 & GMD > 0.5 & BAM != 0",
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 25,      # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': False,
            'useBAM'      : True,
-           'timeZero'    : 1260.3,     #Used to correct delays
+           'timeZero'    : 1261.7,     #Used to correct delays
 
            #either MULTIPLOT for one nexafs 2d plot per dealay
            #or INTEGRAL for one single 2dplot with integrated data over ROI
@@ -44,11 +47,11 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'plots' : {   'rescaleDiffs': False, #SET to reset the 0-difference point to the UV late signal average
 
                          'trnexafs'    : True,
-                         'traceDelay'  : None,    #[ps] Plots the NEXAFS traces for negative (earliest) vs positive delay (specified delay)
+                         'traceDelay'  : 1,    #[ps] Plots the NEXAFS traces for negative (earliest) vs positive delay (specified delay)
                          'diffHist'    : False
            },
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : True, #Set to true to load data form 'output' file and
+           'onlyplot'    : False, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
@@ -64,8 +67,18 @@ if not cfg.onlyplot:
     #Filter only pulses with parameters in range
     fpulses = utils.filterPulses(pulses, cfg.filters)
 
+    #A couple of ad-hoc filters for when standard filtering is not enough
     if cfg.adHocFilter:
+        #There is a botched timeZero scan with low uvPow setting that we need to take out
+        #from TRNEXAFS 2S data( 5.4.19 1:50 TO 8:11 )
         fpulses = fpulses.query('undulatorEV < 221.99 or undulatorEV > 222.01')
+    if cfg.sPolFilter:
+        #There is a chunk of s polarization data in the middle of p polarization scan
+        #That we need to take out the hard way
+        startTime=datetime(2019,4,6,5,28,0).timestamp()
+        stopTime =datetime(2019,4,6,13,28,0).timestamp(),
+        fpulses = fpulses.query('time < @startTime or time > @stopTime')
+
 
     #Get corresponing shots
     if(not len(fpulses)):
@@ -134,7 +147,7 @@ if not cfg.onlyplot:
 
     else:
     	#choose from a plot generated
-        binStart, binEnd = utils.getROI(shotsData, limits=(-5,20))
+        binStart, binEnd = utils.getROI(shotsData, limits=(-3,20))
         print(f"Binning interval {binStart} : {binEnd}")
 
         #Bin data on delay
