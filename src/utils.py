@@ -154,12 +154,11 @@ def getInteg(tofTrace,  integSlice, gmd = None, getDiff = False):
     return integDF
 
 
-
-
 def getROI(shotsData, limits=None):
     ''' show user histogram of delays and get ROI boundaries dragging over the plot'''
     #Show histogram and get center point for binning
     import matplotlib.pyplot as plt
+    plt.figure(figsize=(9,7))
 
     if limits is not None:
         shotsData.query('delay > @limits[0] and delay < @limits[1]').delay.hist(bins=60)
@@ -173,6 +172,7 @@ def getROI(shotsData, limits=None):
         global binEnd
         binEnd = event.xdata
         plt.close(event.canvas.figure)
+
     plt.gcf().suptitle("Drag over ROI for binning")
     plt.gcf().canvas.mpl_connect('button_press_event', getBinStart)
     plt.gcf().canvas.mpl_connect('button_release_event', getBinEnd)
