@@ -244,7 +244,7 @@ if cfg.plots.delay2d:
 if cfg.plots.augerShift:
     #Calulates cross correlation between each row of a and b
     def xCorr(a, b):
-        return np.fft.irfft( np.fft.rfft(a) * np.conj( np.fft.rfft(b) ), n=len)
+        return np.fft.irfft( np.fft.rfft(a) * np.conj( np.fft.rfft(b) ), n=a.shape[1])
 
     def getZeroCrossing(diffTraces):
         ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
@@ -275,9 +275,9 @@ if cfg.plots.augerShift:
             posCenter[n] = np.average(slicedEvs[:zeroXidx[n]], weights=weights[:zeroXidx[n]])
             avgDiff[n] = slicedEvs[:zeroXidx[n]].mean() - slicedEvs[zeroXidx[n]:].mean()
         avgCenter = ( posCenter + negCenter ) / 2
-        return zeroX, avgCenter, posCenter, negCenter
+        return zeroX, avgCenter, posCenter, negCenter, avgDiff
 
-    zeroX, avgCenter, posCenter, negCenter = getZeroCrossing(diffAcc)
+    zeroX, avgCenter, posCenter, negCenter, avgDiff = getZeroCrossing(diffAcc)
 
     f= plt.figure(figsize=(9, 7))
     gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
