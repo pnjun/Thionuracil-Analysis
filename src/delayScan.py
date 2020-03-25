@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 import matplotlib.ticker as tck
 from scipy.optimize import curve_fit
+import time
 
 import sys
 import utils
@@ -22,7 +23,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'output'   : { 'path'     : './data/',
                           'fname'    : 'bootstrapTest'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,22,56,0).timestamp(), #18
+           'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,0,7,0).timestamp(),   #7
            #'time'     : { 'start' : datetime(2019,4,1,1,43,0).timestamp(),
            #               'stop'  : datetime(2019,4,1,2,56,0).timestamp(),
@@ -41,7 +42,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1178.45,   #Used to correct delays
-           'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
+           'decimate'    : True, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
            'bootstrap'   : 5,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
                                   #Set to None for everything else
@@ -56,16 +57,11 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                        'valence'        : False,
            },
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : True, #Set to true to load data form 'output' file and
+           'onlyplot'    : False, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
 cfg = AttrDict(cfg)
-
-if cfg.bootstrap:
-    if cfg.plots.delay2d or cfg.plots.photoShift or cfg.plots.auger2d or cfg.plots.valence == True:
-        print("Bootstrap mode can be used only for augerShift")
-        exit()
 
 if not cfg.onlyplot:
     idx = pd.HDFStore(cfg.data.path + cfg.data.index, mode = 'r')
@@ -95,7 +91,7 @@ if not cfg.onlyplot:
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 
     #Plot relevant parameters
-    #utils.plotParams(shotsData)
+    utils.plotParams(shotsData)
 
     uvEven = shotsData.query("shotNum % 2 == 0").uvPow.mean()
     uvOdd = shotsData.query("shotNum % 2 == 1").uvPow.mean()
@@ -140,7 +136,7 @@ if not cfg.onlyplot:
 
     else:
     	#choose from a plot generated
-        binStart, binEnd = -0.5, 1#utils.getROI(shotsData, limits=(-5,20))
+        binStart, binEnd = utils.getROI(shotsData, limits=(-5,20))
         print(f"Binning interval {binStart} : {binEnd}")
 
         #Bin data on delay
@@ -169,13 +165,15 @@ if not cfg.onlyplot:
                 bsBins[name].append( group.sample(frac=1, replace=True).index )
 
         #Output arrays have an extra dimension to index each bs sample
-        bsDiffAcc  = np.zeros(( len(delayBins), cfg.bootstrap, 3009 ))
-        bsBinCount = np.zeros(( len(delayBins), cfg.bootstrap ))
+        bsDiffAcc  = np.zeros(( cfg.bootstrap, len(delayBins), 3009 ))
+        bsBinCount = np.zeros(( cfg.bootstrap, len(delayBins) ))
 
     #Normally we just have a trace for each delay
     diffAcc  = np.zeros(( len(delayBins), 3009 ))
     binCount = np.zeros(  len(delayBins) )
 
+
+    tStart= time.time()
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
         print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}", end='\r' )
@@ -187,17 +185,18 @@ if not cfg.onlyplot:
 
             #If we are bootstrapping, we need to iterate over the bs samples as well
             if cfg.bootstrap:
-                for bsBinId, bsGroupIdx in enumerate(bsBins[name]):
+                for bsBinId, bsGroupIdx in enumerate(bsBins[delayName]):
                     bsBinIdx   = shotsDiff.index.intersection(bsGroupIdx)
                     bsBinTrace = shotsDiff.reindex(bsBinIdx)
-                    bsDiffAcc[binId, bsBinId]  += -bsBinTrace.sum(axis=0)
-                    bsBinCount[binId, bsBinId] += bsBinTrace.shape[0]
+                    bsDiffAcc[bsBinId, binId]  += -bsBinTrace.sum(axis=0)
+                    bsBinCount[bsBinId, binId] += bsBinTrace.shape[0]
 
             delayBinIdx   = shotsDiff.index.intersection(group.index)
             delayBinTrace = shotsDiff.reindex(delayBinIdx)
             diffAcc[binId]  += -delayBinTrace.sum(axis=0)
             binCount[binId] += delayBinTrace.shape[0]
 
+    print(f"Calculation took {time.time()-tStart} s ")
 
     idx.close()
     tr.close()
@@ -281,19 +280,32 @@ if cfg.plots.augerShift:
 
     f= plt.figure(figsize=(9, 7))
     gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
-    ax1 = f.add_subplot(gs[0])
-    plt.plot(delays, zeroX, label='zero crossing')
-    plt.plot(delays, posCenter, label='positive center')
-    plt.plot(delays, negCenter, label='negative center')
-    plt.plot(delays, avgCenter, label='center average')
-    ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
-    plt.xlabel("delay [ps]")
-    plt.ylabel("peak position [eV]")
-    plt.legend()
-    ax1 = f.add_subplot(gs[1], sharex=ax1)
+
+    ax1 = f.add_subplot(gs[1])
     plt.xlabel("delay [ps]")
     plt.ylabel("Pos Avg - Neg Avg [au]")
     plt.plot(delays, avgDiff)
+
+    ax1 = f.add_subplot(gs[0], sharex=ax1)
+    ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
+    plt.xlabel("delay [ps]")
+    plt.ylabel("peak position [eV]")
+    plt.plot(delays, zeroX, label='zero crossing', color='C0')
+    plt.plot(delays, posCenter, label='positive center', color='C1')
+    plt.plot(delays, negCenter, label='negative center', color='C2')
+    plt.plot(delays, avgCenter, label='center average', color='C3')
+
+    #If bootstrap data is present, use to to estimate errorbars
+    try:
+        #avgCenter for bootstrap samples
+        centers = np.array([ getZeroCrossing(sample)[1] for sample in bsDiffAcc]).T
+        bsVar = centers.var(axis=1)   #Variance of bootstrap samples
+        plt.fill_between(delays, avgCenter-bsVar, avgCenter+bsVar, facecolor='C3', alpha=0.5)
+        plt.gca().set_ylim([123,148])
+    except NameError:
+        pass
+
+    plt.legend()
 
 if cfg.plots.auger2d:
     ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
