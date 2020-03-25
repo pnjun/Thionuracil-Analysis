@@ -22,8 +22,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'output'   : { 'path'     : './data/',
                           'fname'    : 'bootstrapTest'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(),
-                          'stop'  : datetime(2019,3,28,7,7,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,22,56,0).timestamp(), #18
+                          'stop'  : datetime(2019,3,27,0,7,0).timestamp(),   #7
            #'time'     : { 'start' : datetime(2019,4,1,1,43,0).timestamp(),
            #               'stop'  : datetime(2019,4,1,2,56,0).timestamp(),
                         },
@@ -36,14 +36,14 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 30,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 10,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1178.45,   #Used to correct delays
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
-           'bootstrap'   : True,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
+           'bootstrap'   : 5,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
                                   #Set to None for everything else
 
            'augerROI'    : (120,160),
@@ -95,7 +95,7 @@ if not cfg.onlyplot:
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 
     #Plot relevant parameters
-    utils.plotParams(shotsData)
+    #utils.plotParams(shotsData)
 
     uvEven = shotsData.query("shotNum % 2 == 0").uvPow.mean()
     uvOdd = shotsData.query("shotNum % 2 == 1").uvPow.mean()
@@ -136,52 +136,78 @@ if not cfg.onlyplot:
         print(f"Setting up customized bins")
         interval = pd.IntervalIndex.from_arrays(utils.CUSTOM_BINS_LEFT - averageBamShift,
                                                 utils.CUSTOM_BINS_RIGHT - averageBamShift)
-        bins = shotsData.groupby( pd.cut(shotsData.delay, interval) )
+        delayBins = shotsData.groupby( pd.cut(shotsData.delay, interval) )
 
     else:
     	#choose from a plot generated
-        binStart, binEnd = utils.getROI(shotsData, limits=(-5,20))
+        binStart, binEnd = -0.5, 1#utils.getROI(shotsData, limits=(-5,20))
         print(f"Binning interval {binStart} : {binEnd}")
 
         #Bin data on delay
         if cfg.delayBin_mode == 'CONSTANT':
-            bins = shotsData.groupby( pd.cut( shotsData.delay,
+            delayBins = shotsData.groupby( pd.cut( shotsData.delay,
                                               np.arange(binStart, binEnd, cfg.delayBinStep) ) )
         elif cfg.delayBin_mode == 'QUANTILE':
        	    shotsData = shotsData[ (shotsData.delay > binStart) & (shotsData.delay < binEnd) ]
-       	    bins = shotsData.groupby( pd.qcut( shotsData.delay, cfg.delayBinNum ) )
+       	    delayBins = shotsData.groupby( pd.qcut( shotsData.delay, cfg.delayBinNum ) )
         else:
             raise Exception("binning mode not valid")
 
     #Read in TOF data and calulate difference, in chunks
     shotsTof  = utils.h5load('shotsTof', tr, pulses, chunk=cfg.ioChunkSize)
 
-    #Create empty ouptut image image
-    diffAcc = np.zeros( ( len(bins), 3009 ))
-    binCount = np.zeros( len(bins) )
+    #Create empty ouptut image in diffAcc (difference accumulator)
+    #binCount counts how many shots go in each bin, to average them
+    if cfg.bootstrap:
+        #For each delaybin, we need to create cfg.bootstrap samples of it
+        #bsBin is a dictionary associating a list of bs samples to each
+        #delay bin key
+        bsBins = {}
+        for name, group in delayBins:
+            bsBins[name] = []
+            for n in range(cfg.bootstrap):
+                bsBins[name].append( group.sample(frac=1, replace=True).index )
+
+        #Output arrays have an extra dimension to index each bs sample
+        bsDiffAcc  = np.zeros(( len(delayBins), cfg.bootstrap, 3009 ))
+        bsBinCount = np.zeros(( len(delayBins), cfg.bootstrap ))
+
+    #Normally we just have a trace for each delay
+    diffAcc  = np.zeros(( len(delayBins), 3009 ))
+    binCount = np.zeros(  len(delayBins) )
 
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
-        print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}",
-               end='\r' )
+        print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}", end='\r' )
         shotsDiff = utils.getDiff(chunk, gmdData)
-        for binId, bin in enumerate(bins):
-            name, group = bin
-            group = group.query(cfg.sdfilter)
-            binIdx = shotsDiff.index.intersection(group.index)
-            binTrace = shotsDiff.reindex(binIdx)
 
-            diffAcc[binId] += binTrace.sum(axis=0)
-            binCount[binId] += binTrace.shape[0]
+        for binId, delayBin in enumerate(delayBins):
+            delayName, group = delayBin
+            group = group.query(cfg.sdfilter)
+
+            #If we are bootstrapping, we need to iterate over the bs samples as well
+            if cfg.bootstrap:
+                for bsBinId, bsGroupIdx in enumerate(bsBins[name]):
+                    bsBinIdx   = shotsDiff.index.intersection(bsGroupIdx)
+                    bsBinTrace = shotsDiff.reindex(bsBinIdx)
+                    bsDiffAcc[binId, bsBinId]  += -bsBinTrace.sum(axis=0)
+                    bsBinCount[binId, bsBinId] += bsBinTrace.shape[0]
+
+            delayBinIdx   = shotsDiff.index.intersection(group.index)
+            delayBinTrace = shotsDiff.reindex(delayBinIdx)
+            diffAcc[binId]  += -delayBinTrace.sum(axis=0)
+            binCount[binId] += delayBinTrace.shape[0]
+
 
     idx.close()
     tr.close()
 
+    if cfg.bootstrap:
+        bsDiffAcc /= bsBinCount[:,:,None]
     diffAcc /= binCount[:,None]
-    if uvEven > uvOdd: diffAcc *= -1
 
     #get axis labels
-    delays = np.array( [name.mid for name, _ in bins] )
+    delays = np.array( [name.mid for name, _ in delayBins] )
     #delays = np.array([bins["delay"].mean().values, bins["delay"].std().values])
 
     evConv = utils.mainTofEvConv(pulses.retarder.mean())
@@ -189,14 +215,20 @@ if not cfg.onlyplot:
 
     # make dataframe and save data
     if cfg.writeOutput:
-        np.savez(cfg.output.path + cfg.output.fname,
-                 diffAcc = diffAcc, evs=evs, delays=delays)
+        if cfg.bootstrap:
+            np.savez(cfg.output.path + cfg.output.fname,
+                     diffAcc = diffAcc, bsDiffAcc=bsDiffAcc, evs=evs, delays=delays)
 
 if cfg.onlyplot:
     dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
     diffAcc = dataZ['diffAcc']
     delays = dataZ['delays']
     evs    = dataZ['evs']
+
+    try:
+        bsDiffAcc = dataZ['bsDiffAcc']
+    except KeyError:
+        pass
 
 #plot resulting image
 if cfg.plots.delay2d:
@@ -210,38 +242,42 @@ if cfg.plots.delay2d:
     plt.ylabel("Delay (ps)")
 
 if cfg.plots.augerShift:
-    #Slice Traces over Auger ROI
-    ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
-    sliced = diffAcc[:, ROI]
-    slicedEvs = evs[ROI]
-    len = sliced.shape[1]
-
     #Calulates cross correlation between each row of a and b
     def xCorr(a, b):
         return np.fft.irfft( np.fft.rfft(a) * np.conj( np.fft.rfft(b) ), n=len)
 
-    #Offset traces so that they are on average centered around 0 (using start and end data)
-    avg = len // 10
-    offset = ( sliced[:,:avg].mean(axis = 1) + sliced[:,-avg:].mean(axis = 1) ) / 2
-    sliced -= offset[:,None]
+    def getZeroCrossing(diffTraces):
+        ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
+        #Slice Traces over Auger ROI
+        sliced = diffTraces[:, ROI]
+        slicedEvs = evs[ROI]
+        len = sliced.shape[1]
 
-    #Find 0 crossing by maximizing the cross correlation between
-    #the traces and sign function
-    A = np.zeros(sliced.shape) + np.arange(len)
-    sign = np.sign( A - len//2 )
-    corr = xCorr(sliced, sign)
-    zeroXidx = corr.argmax(axis=1)
-    zeroX = slicedEvs[zeroXidx]
+        #Offset traces so that they are on average centered around 0 (using start and end data)
+        avg = len // 10
+        offset = ( sliced[:,:avg].mean(axis = 1) + sliced[:,-avg:].mean(axis = 1) ) / 2
+        sliced -= offset[:,None]
 
-    #Get first moments for positive and negative sides
-    posCenter = np.empty(diffAcc.shape[0])
-    negCenter = np.empty(diffAcc.shape[0])
-    avgDiff   = np.empty(diffAcc.shape[0]) #Difference in pos - neg avg signal
-    for n, weights in enumerate(sliced):
-        negCenter[n] = np.average(slicedEvs[zeroXidx[n]:], weights=weights[zeroXidx[n]:])
-        posCenter[n] = np.average(slicedEvs[:zeroXidx[n]], weights=weights[:zeroXidx[n]])
-        avgDiff[n] = slicedEvs[:zeroXidx[n]].mean() - slicedEvs[zeroXidx[n]:].mean()
-    avgCenter = ( posCenter + negCenter ) / 2
+        #Find 0 crossing by maximizing the cross correlation between
+        #the traces and sign function
+        A = np.zeros(sliced.shape) + np.arange(len)
+        sign = np.sign( A - len//2 )
+        corr = xCorr(sliced, sign)
+        zeroXidx = corr.argmax(axis=1)
+        zeroX = slicedEvs[zeroXidx]
+
+        #Get first moments for positive and negative sides
+        posCenter = np.empty(diffAcc.shape[0])
+        negCenter = np.empty(diffAcc.shape[0])
+        avgDiff   = np.empty(diffAcc.shape[0]) #Difference in pos - neg avg signal
+        for n, weights in enumerate(sliced):
+            negCenter[n] = np.average(slicedEvs[zeroXidx[n]:], weights=weights[zeroXidx[n]:])
+            posCenter[n] = np.average(slicedEvs[:zeroXidx[n]], weights=weights[:zeroXidx[n]])
+            avgDiff[n] = slicedEvs[:zeroXidx[n]].mean() - slicedEvs[zeroXidx[n]:].mean()
+        avgCenter = ( posCenter + negCenter ) / 2
+        return zeroX, avgCenter, posCenter, negCenter
+
+    zeroX, avgCenter, posCenter, negCenter = getZeroCrossing(diffAcc)
 
     f= plt.figure(figsize=(9, 7))
     gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
@@ -315,7 +351,6 @@ if cfg.plots.photoShift:
     plt.ylabel("Peak position (eV)")
     plt.legend(handles=[PosMax, NegMax])
     plt.tight_layout()
-
 
 if cfg.plots.valence:
     plt.figure()
