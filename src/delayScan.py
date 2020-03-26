@@ -21,10 +21,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'bootstrapTest'
+                          'fname'    : 'bootstrap_n100_bin50'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
-                          'stop'  : datetime(2019,3,27,0,7,0).timestamp(),   #7
+                          'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
            #'time'     : { 'start' : datetime(2019,4,1,1,43,0).timestamp(),
            #               'stop'  : datetime(2019,4,1,2,56,0).timestamp(),
                         },
@@ -37,14 +37,14 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 10,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 50,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1178.45,   #Used to correct delays
-           'decimate'    : True, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
+           'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
-           'bootstrap'   : 5,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
+           'bootstrap'   : 100,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
                                   #Set to None for everything else
 
            'augerROI'    : (120,160),
@@ -196,7 +196,7 @@ if not cfg.onlyplot:
             diffAcc[binId]  += -delayBinTrace.sum(axis=0)
             binCount[binId] += delayBinTrace.shape[0]
 
-    print(f"Calculation took {time.time()-tStart} s ")
+    print(f"Binning took {time.time()-tStart} s to run")
 
     idx.close()
     tr.close()
@@ -298,9 +298,14 @@ if cfg.plots.augerShift:
     #If bootstrap data is present, use to to estimate errorbars
     try:
         #avgCenter for bootstrap samples
-        centers = np.array([ getZeroCrossing(sample)[1] for sample in bsDiffAcc]).T
-        bsVar = centers.var(axis=1)   #Variance of bootstrap samples
-        plt.fill_between(delays, avgCenter-bsVar, avgCenter+bsVar, facecolor='C3', alpha=0.5)
+        results = [ getZeroCrossing(sample) for sample in bsDiffAcc]
+        zeroXs  = np.array([ res[0] for res in results]).T
+        centers = np.array([ res[1] for res in results]).T
+
+        bsXVar = zeroXs.var(axis=1)  #Variance of bootstrap samples
+        bsCVar = centers.var(axis=1)
+        plt.fill_between(delays, zeroX-bsXVar,     zeroX+bsXVar,     facecolor='C0', alpha=0.35)
+        plt.fill_between(delays, avgCenter-bsCVar, avgCenter+bsCVar, facecolor='C3', alpha=0.35)
         plt.gca().set_ylim([123,148])
     except NameError:
         pass
