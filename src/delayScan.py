@@ -26,7 +26,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'DelayScan270Quant30'
+                          'fname'    : 'bootstrapAppend'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -48,22 +48,22 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1178.45,   #Used to correct delays
-           'decimate'    : True, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
+           'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
-           'bootstrap'   : 100,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
+           'bootstrap'   : 20,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
                                   #Set to None for everything else
 
            'augerROI'    : (120,160),
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : True,
+                       'auger2d'        : False,
                           'augerIntensity' : False, #Only used when auger 2d is true
                        'augerShift'     : False,
                        'valence'        : False,
            },
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : True, #Set to true to load data form 'output' file and
+           'onlyplot'    : False, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
@@ -89,7 +89,8 @@ if not cfg.onlyplot:
 
     if cfg.decimate:
         print("Decimating...")
-        pulses = pulses.query('index % 2 == 0 and index % 10 != 0')
+        #pulses = pulses.query('index % 2 == 0 and index % 10 != 0')
+        pulses = pulses.query('index % 10 == 0')
 
     shotsData = utils.h5load('shotsData', tr, pulses)
 
@@ -180,7 +181,6 @@ if not cfg.onlyplot:
     #Normally we just have a trace for each delay
     diffAcc  = np.zeros(( len(delayBins), 3009 ))
     binCount = np.zeros(  len(delayBins) )
-    print( f"starting | process mem  {process.memory_info().rss/1e6} Mb")
     tStart= time.time()
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
@@ -189,7 +189,7 @@ if not cfg.onlyplot:
         for binId, delayBin in enumerate(delayBins):
             delayName, group = delayBin
             group = group.query(cfg.sdfilter)
-            print( f"{binId} | process mem  {process.memory_info().rss/1e6} Mb")
+            #print( f"{binId} | process mem  {process.memory_info().rss/1e6} Mb")
             #If we are bootstrapping, we need to iterate over the bs samples as well
             if cfg.bootstrap:
                 for bsBinId, bsGroupIdx in enumerate(bsBins[delayName]):
@@ -227,6 +227,18 @@ if not cfg.onlyplot:
     # make dataframe and save data
     if cfg.writeOutput:
         if cfg.bootstrap:
+            #If a file with same name already exists, append the new bs samples to it without overwriting
+            #This sidesteps the limit on bs samples we can run in one go due to the memory leak in pd.index.isin
+            #and allows us to split the calculation in multiple batches.
+            #Warning, appendind only makes sense if the time frames and binning parameters are the same
+            #for each run!!
+            try:
+                dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
+                oldBs = dataZ['bsDiffAcc']
+                bsDiffAcc = np.vstack((bsDiffAcc, oldBs))
+            except FileNotFoundError:
+                pass
+
             np.savez(cfg.output.path + cfg.output.fname,
                      diffAcc = diffAcc, bsDiffAcc=bsDiffAcc, evs=evs, delays=delays)
         else:
@@ -284,6 +296,8 @@ if cfg.plots.augerShift:
         negCenter = np.empty(diffAcc.shape[0])
         avgDiff   = np.empty(diffAcc.shape[0]) #Difference in pos - neg avg signal
         for n, weights in enumerate(sliced):
+            if zeroXidx[n] == 0: zeroXidx[n] += 1
+            if zeroXidx[n] == len: zeroXidx[n] -= 1
             negCenter[n] = np.average(slicedEvs[zeroXidx[n]:], weights=weights[zeroXidx[n]:])
             posCenter[n] = np.average(slicedEvs[:zeroXidx[n]], weights=weights[:zeroXidx[n]])
             avgDiff[n] = slicedEvs[:zeroXidx[n]].mean() - slicedEvs[zeroXidx[n]:].mean()
@@ -314,6 +328,7 @@ if cfg.plots.augerShift:
     try:
         #avgCenter for bootstrap samples
         results = [ getZeroCrossing(sample) for sample in bsDiffAcc]
+        print(f"{len(results)} bootstrap samples found, plotting errorbars")
         zeroXs  = np.array([ res[0] for res in results]).T
         centers = np.array([ res[1] for res in results]).T
 
