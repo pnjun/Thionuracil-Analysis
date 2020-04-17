@@ -14,6 +14,11 @@ import utils
 
 import pickle
 
+import gc
+import os
+import psutil
+process = psutil.Process(os.getpid())
+
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'fisrt_block.h5'
@@ -21,7 +26,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'bootstrap_n100_bin50'
+                          'fname'    : 'DelayScan270Quant30'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -33,16 +38,17 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (6,11)
                         },
+           'interactive' : False, #Set to true to suppress initial plots. delay range defaults to -0.5,3
 
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 50,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 35,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1178.45,   #Used to correct delays
-           'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
+           'decimate'    : True, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
            'bootstrap'   : 100,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
                                   #Set to None for everything else
@@ -51,13 +57,13 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : False,
-                          'augerIntensity' : True, #Only used when auger 2d is true
-                       'augerShift'     : True,
+                       'auger2d'        : True,
+                          'augerIntensity' : False, #Only used when auger 2d is true
+                       'augerShift'     : False,
                        'valence'        : False,
            },
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : False, #Set to true to load data form 'output' file and
+           'onlyplot'    : True, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
@@ -83,7 +89,7 @@ if not cfg.onlyplot:
 
     if cfg.decimate:
         print("Decimating...")
-        pulses = pulses.query('index % 10 == 0')
+        pulses = pulses.query('index % 2 == 0 and index % 10 != 0')
 
     shotsData = utils.h5load('shotsData', tr, pulses)
 
@@ -91,7 +97,7 @@ if not cfg.onlyplot:
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 
     #Plot relevant parameters
-    utils.plotParams(shotsData)
+    if cfg.interactive: utils.plotParams(shotsData)
 
     uvEven = shotsData.query("shotNum % 2 == 0").uvPow.mean()
     uvOdd = shotsData.query("shotNum % 2 == 1").uvPow.mean()
@@ -136,7 +142,10 @@ if not cfg.onlyplot:
 
     else:
     	#choose from a plot generated
-        binStart, binEnd = utils.getROI(shotsData, limits=(-5,20))
+        if cfg.interactive:
+            binStart, binEnd = utils.getROI(shotsData, limits=(-5,20))
+        else:
+            binStart, binEnd = -0.5,3
         print(f"Binning interval {binStart} : {binEnd}")
 
         #Bin data on delay
@@ -171,27 +180,30 @@ if not cfg.onlyplot:
     #Normally we just have a trace for each delay
     diffAcc  = np.zeros(( len(delayBins), 3009 ))
     binCount = np.zeros(  len(delayBins) )
-
-
+    print( f"starting | process mem  {process.memory_info().rss/1e6} Mb")
     tStart= time.time()
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
         print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}", end='\r' )
         shotsDiff = utils.getDiff(chunk, gmdData)
-
         for binId, delayBin in enumerate(delayBins):
             delayName, group = delayBin
             group = group.query(cfg.sdfilter)
-
+            print( f"{binId} | process mem  {process.memory_info().rss/1e6} Mb")
             #If we are bootstrapping, we need to iterate over the bs samples as well
             if cfg.bootstrap:
                 for bsBinId, bsGroupIdx in enumerate(bsBins[delayName]):
-                    bsBinIdx   = shotsDiff.index.intersection(bsGroupIdx)
-                    bsBinTrace = shotsDiff.reindex(bsBinIdx)
-                    bsDiffAcc[bsBinId, binId]  += -bsBinTrace.sum(axis=0)
-                    bsBinCount[bsBinId, binId] += bsBinTrace.shape[0]
+                    try:
+                        bsBinTrace = shotsDiff.iloc[ shotsDiff.index.isin(bsGroupIdx) ]
+                        #bsBinTrace = shotsDiff.query('pulseId in @bsGroupIdx.get_level_values(0)')
+                        #bsBinTrace = shotsDiff.reindex(bsGroupIdx).dropna()
+                        bsDiffAcc[bsBinId, binId]  += -bsBinTrace.sum(axis=0)
+                        bsBinCount[bsBinId, binId] += bsBinTrace.shape[0]
+                    except KeyError:
+                        pass
 
-            delayBinIdx   = shotsDiff.index.intersection(group.index)
+
+            delayBinIdx   = group.index.intersection(shotsDiff.index)
             delayBinTrace = shotsDiff.reindex(delayBinIdx)
             diffAcc[binId]  += -delayBinTrace.sum(axis=0)
             binCount[binId] += delayBinTrace.shape[0]
@@ -217,7 +229,9 @@ if not cfg.onlyplot:
         if cfg.bootstrap:
             np.savez(cfg.output.path + cfg.output.fname,
                      diffAcc = diffAcc, bsDiffAcc=bsDiffAcc, evs=evs, delays=delays)
-
+        else:
+            np.savez(cfg.output.path + cfg.output.fname,
+                     diffAcc = diffAcc, evs=evs, delays=delays)
 if cfg.onlyplot:
     dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
     diffAcc = dataZ['diffAcc']
@@ -283,19 +297,20 @@ if cfg.plots.augerShift:
 
     ax1 = f.add_subplot(gs[1])
     plt.xlabel("delay [ps]")
-    plt.ylabel("Pos Avg - Neg Avg [au]")
+    plt.ylabel("Differential signal intensity [a.u.]")
     plt.plot(delays, avgDiff)
 
     ax1 = f.add_subplot(gs[0], sharex=ax1)
     ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
     plt.xlabel("delay [ps]")
     plt.ylabel("peak position [eV]")
-    plt.plot(delays, zeroX, label='zero crossing', color='C0')
-    plt.plot(delays, posCenter, label='positive center', color='C1')
-    plt.plot(delays, negCenter, label='negative center', color='C2')
-    plt.plot(delays, avgCenter, label='center average', color='C3')
+    plt.plot(delays, zeroX, '.-', label='zero crossing', color='C0')
+    #plt.plot(delays, posCenter, label='positive centroid', color='C1')
+    #plt.plot(delays, negCenter, label='negative centroid', color='C2')
+    plt.plot(delays, avgCenter, '.-', label='positive and negative centroids midpoint', color='C3')
 
     #If bootstrap data is present, use to to estimate errorbars
+
     try:
         #avgCenter for bootstrap samples
         results = [ getZeroCrossing(sample) for sample in bsDiffAcc]
@@ -304,9 +319,13 @@ if cfg.plots.augerShift:
 
         bsXVar = zeroXs.var(axis=1)  #Variance of bootstrap samples
         bsCVar = centers.var(axis=1)
-        plt.fill_between(delays, zeroX-bsXVar,     zeroX+bsXVar,     facecolor='C0', alpha=0.35)
-        plt.fill_between(delays, avgCenter-bsCVar, avgCenter+bsCVar, facecolor='C3', alpha=0.35)
-        plt.gca().set_ylim([123,148])
+        #bcCMea = centers.mean(axis=1)
+        #plt.plot(delays, bcCMea, label='center ADSF', color='C7')
+
+        plt.fill_between(delays, zeroX-bsXVar,     zeroX+bsXVar,     facecolor='C0', alpha=0.15)
+        plt.fill_between(delays, avgCenter-bsCVar, avgCenter+bsCVar, facecolor='C3', alpha=0.15)
+        plt.gca().set_ylim([136,142])
+        plt.gca().set_xlim([-0.4,3.2])
     except NameError:
         pass
 
@@ -334,7 +353,7 @@ if cfg.plots.auger2d:
         f.add_subplot(gs[0], sharey=ax1)
         f.subplots_adjust(left=0.08, bottom=0.07, right=0.96, top=0.95, wspace=None, hspace=0.05)
 
-    plt.suptitle("Auger Kinetic Energy vs Delay.")
+    plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270 eV ")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
     plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
                    cmap='bwr', vmax=cmax, vmin=-cmax)
