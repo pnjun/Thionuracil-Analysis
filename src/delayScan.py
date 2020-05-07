@@ -26,7 +26,9 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'bootstrapAppend'
+                          'fname'    : 'DelayScan_q20_270eV'
+                          #'fname'    : 'DelayScan_q25_270eV'
+                          #'fname'    : 'bootstrapAppend'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -43,17 +45,17 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 35,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 20,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': True,
            'useBAM'      : True,
            'timeZero'    : 1178.45,   #Used to correct delays
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
-           'bootstrap'   : 20,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
+           'bootstrap'   : 35,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
                                   #Set to None for everything else
 
-           'augerROI'    : (120,160),
+           'augerROI'    : (125,165),
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
@@ -236,7 +238,7 @@ if not cfg.onlyplot:
                 dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
                 oldBs = dataZ['bsDiffAcc']
                 bsDiffAcc = np.vstack((bsDiffAcc, oldBs))
-            except FileNotFoundError:
+            except (FileNotFoundError, KeyError):
                 pass
 
             np.savez(cfg.output.path + cfg.output.fname,
@@ -274,14 +276,16 @@ if cfg.plots.augerShift:
     def getZeroCrossing(diffTraces):
         ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
         #Slice Traces over Auger ROI
-        sliced = diffTraces[:, ROI]
+        sliced = diffTraces[:, ROI].copy()
         slicedEvs = evs[ROI]
         len = sliced.shape[1]
 
         #Offset traces so that they are on average centered around 0 (using start and end data)
-        avg = len // 10
-        offset = ( sliced[:,:avg].mean(axis = 1) + sliced[:,-avg:].mean(axis = 1) ) / 2
-        sliced -= offset[:,None]
+        avg = len // 8
+        #offset = ( sliced[:,:avg].mean(axis = 1) + sliced[:,-avg:].mean(axis = 1) ) / 2
+        #sliced -= offset[:,None]
+
+        sliced -= sliced[:2,:].mean()
 
         #Find 0 crossing by maximizing the cross correlation between
         #the traces and sign function
@@ -298,9 +302,9 @@ if cfg.plots.augerShift:
         for n, weights in enumerate(sliced):
             if zeroXidx[n] == 0: zeroXidx[n] += 1
             if zeroXidx[n] == len: zeroXidx[n] -= 1
-            negCenter[n] = np.average(slicedEvs[zeroXidx[n]:], weights=weights[zeroXidx[n]:])
-            posCenter[n] = np.average(slicedEvs[:zeroXidx[n]], weights=weights[:zeroXidx[n]])
-            avgDiff[n] = slicedEvs[:zeroXidx[n]].mean() - slicedEvs[zeroXidx[n]:].mean()
+            negCenter[n] = np.average(slicedEvs[zeroXidx[n]:], weights=np.abs(weights[zeroXidx[n]:]))
+            posCenter[n] = np.average(slicedEvs[:zeroXidx[n]], weights=np.abs(weights[:zeroXidx[n]]))
+            avgDiff[n] = sliced[n,sliced[n,:] > 0].sum() - sliced[n,sliced[n,:] < 0].sum()
         avgCenter = ( posCenter + negCenter ) / 2
         return zeroX, avgCenter, posCenter, negCenter, avgDiff
 
@@ -336,6 +340,7 @@ if cfg.plots.augerShift:
         bsCVar = centers.var(axis=1)
         #bcCMea = centers.mean(axis=1)
         #plt.plot(delays, bcCMea, label='center ADSF', color='C7')
+        print(f"Total bs variance {bsCVar.sum():.1f}  {bsXVar.sum():.1f}")
 
         plt.fill_between(delays, zeroX-bsXVar,     zeroX+bsXVar,     facecolor='C0', alpha=0.15)
         plt.fill_between(delays, avgCenter-bsCVar, avgCenter+bsCVar, facecolor='C3', alpha=0.15)
@@ -370,8 +375,10 @@ if cfg.plots.auger2d:
 
     plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270 eV ")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
-    plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
-                   cmap='bwr', vmax=cmax, vmin=-cmax)
+    #plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
+    #               cmap='bwr', vmax=cmax, vmin=-cmax)
+    plt.contourf(evs[ROI], delays, diffAcc[:,ROI],
+                   cmap='bwr', vmax=cmax, vmin=-cmax, levels=100)
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
 
