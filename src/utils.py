@@ -28,7 +28,7 @@ def h5load(dfname, h5store, pulses, chunk=None):
     pulsesLims = (pulses.index[0], pulses.index[-1])
     iter = True if chunk is not None else False
     return h5store.select(dfname,
-           where= ['pulseId >= pulsesLims[0] and pulseId < pulsesLims[1]',
+           where= ['pulseId >= pulsesLims[0] and pulseId <= pulsesLims[1]',
                    'pulseId in pulses.index'],
            iterator=iter,
            chunksize= chunk )
