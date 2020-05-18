@@ -16,7 +16,7 @@ cfg = { 'data' : { 'path'     : '/media/Fast2/ThioUr/processed/',
                    'indexf'   : 'idOpistest2019-03-30T1900.h5'
                  },
         'time' : { 'start' : datetime(2019,3,30,20,34,2).timestamp(),
-                   'stop'  : datetime(2019,3,30,20,38,59).timestamp(),
+                   'stop'  : datetime(2019,3,30,20,34,58).timestamp(),
                  },
 
         'averageShots'  : True,
@@ -45,7 +45,7 @@ index   = pd.HDFStore(cfg.data.path + cfg.data.indexf, mode = 'r')
 pulses = index.select('pulses',
                       where='time >= cfg.time.start and time < cfg.time.stop')
 
-print(pulses.undulatorEV.unique())
+print(f"undulator energies {pulses.undulatorEV.unique()}")
 
 if cfg.decimate:
     print("Decimating...")
@@ -62,7 +62,7 @@ shotsData = utils.h5load('shotsData', h5data, pulses)
 opisEv = opisData.ev.mean()
 if cfg.resortOpis:
     opisData.query('shotNum < 48')
-    opisData.ev = -utils.shotsDelay(pulses.undulatorEV, opisData.ev)
+    opisData.ev = -utils.shotsDelay(pulses.undulatorEV, opisData.ev) #imporper use of shotsDelay, but it works
 
 if cfg.ignoreMask:
     opisData = opisData.query('ignoreMask == False')
