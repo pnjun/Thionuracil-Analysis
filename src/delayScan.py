@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 import matplotlib.ticker as tck
 from scipy.optimize import curve_fit
+from scipy.signal import correlate
 import time
 
 import sys
@@ -26,9 +27,9 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'DelayScan_q20_270eV'
+                          #'fname'    : 'DelayScanZoom3_q22_270eV'
                           #'fname'    : 'DelayScan_q25_270eV'
-                          #'fname'    : 'bootstrapAppend'
+                          'fname'    : 'bootstrapAppend'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -41,6 +42,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'waveplate'   : (6,11)
                         },
            'interactive' : False, #Set to true to suppress initial plots. delay range defaults to -0.5,3
+           'timeBounds'  : (-0.6,2.2),     #Delay bounds used if not interactive
 
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
@@ -52,20 +54,20 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'timeZero'    : 1178.45,   #Used to correct delays
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
-           'bootstrap'   : 35,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
+           'bootstrap'   : None,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
                                   #Set to None for everything else
 
-           'augerROI'    : (125,165),
+           'augerROI'    : (125,155),
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : False,
+                       'auger2d'        : "STANDARD",  #None, "STANDARD" or "CONTOUR"
                           'augerIntensity' : False, #Only used when auger 2d is true
-                       'augerShift'     : False,
+                       'augerShift'     : True,
                        'valence'        : False,
            },
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : False, #Set to true to load data form 'output' file and
+           'onlyplot'    : True, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
@@ -148,7 +150,7 @@ if not cfg.onlyplot:
         if cfg.interactive:
             binStart, binEnd = utils.getROI(shotsData, limits=(-5,20))
         else:
-            binStart, binEnd = -0.5,3
+            binStart, binEnd = cfg.timeBounds
         print(f"Binning interval {binStart} : {binEnd}")
 
         #Bin data on delay
@@ -269,29 +271,23 @@ if cfg.plots.delay2d:
     plt.ylabel("Delay (ps)")
 
 if cfg.plots.augerShift:
-    #Calulates cross correlation between each row of a and b
-    def xCorr(a, b):
-        return np.fft.irfft( np.fft.rfft(a) * np.conj( np.fft.rfft(b) ), n=a.shape[1])
+    #Calulates cross correlation between a and sign function, seems to work
+    def signCorr(a):
+        cuma = np.cumsum(a, axis=1)
+        suma = np.sum(a, axis=1)
+        return 2*cuma - suma[:,None]
 
     def getZeroCrossing(diffTraces):
         ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
         #Slice Traces over Auger ROI
-        sliced = diffTraces[:, ROI].copy()
+        sliced = diffTraces[:, ROI]#.copy()
         slicedEvs = evs[ROI]
         len = sliced.shape[1]
 
-        #Offset traces so that they are on average centered around 0 (using start and end data)
-        avg = len // 8
-        #offset = ( sliced[:,:avg].mean(axis = 1) + sliced[:,-avg:].mean(axis = 1) ) / 2
-        #sliced -= offset[:,None]
+        #Offset traces so that they are on average centered around 0
+        sliced -= sliced[:,:].mean()
+        corr = signCorr(sliced)
 
-        sliced -= sliced[:2,:].mean()
-
-        #Find 0 crossing by maximizing the cross correlation between
-        #the traces and sign function
-        A = np.zeros(sliced.shape) + np.arange(len)
-        sign = np.sign( A - len//2 )
-        corr = xCorr(sliced, sign)
         zeroXidx = corr.argmax(axis=1)
         zeroX = slicedEvs[zeroXidx]
 
@@ -315,21 +311,28 @@ if cfg.plots.augerShift:
 
     ax1 = f.add_subplot(gs[1])
     plt.xlabel("delay [ps]")
-    plt.ylabel("Differential signal intensity [a.u.]")
+    plt.ylabel("Diff. signal intensity [au]")
     plt.plot(delays, avgDiff)
 
     ax1 = f.add_subplot(gs[0], sharex=ax1)
     ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
     plt.xlabel("delay [ps]")
     plt.ylabel("peak position [eV]")
-    plt.plot(delays, zeroX, '.-', label='zero crossing', color='C0')
-    #plt.plot(delays, posCenter, label='positive centroid', color='C1')
-    #plt.plot(delays, negCenter, label='negative centroid', color='C2')
-    plt.plot(delays, avgCenter, '.-', label='positive and negative centroids midpoint', color='C3')
+    plt.plot(delays, zeroX, '+', label='zero crossing', color='C0')
+    plt.plot(delays, avgCenter, 'x', label='differential signal centroid', color='C3')
+
+    def movAvg(a, n=3) :
+        ret = np.cumsum(a, dtype=float)
+        ret[n:] = ret[n:] - ret[:-n]
+        return ret[n - 1:] / n
+
+    plt.plot(delays[1:-1], movAvg(zeroX), '-', color='C0')
+    plt.plot(delays[1:-1], movAvg(avgCenter), '-', color='C3')
 
     #If bootstrap data is present, use to to estimate errorbars
 
     try:
+        raise NameError
         #avgCenter for bootstrap samples
         results = [ getZeroCrossing(sample) for sample in bsDiffAcc]
         print(f"{len(results)} bootstrap samples found, plotting errorbars")
@@ -345,7 +348,7 @@ if cfg.plots.augerShift:
         plt.fill_between(delays, zeroX-bsXVar,     zeroX+bsXVar,     facecolor='C0', alpha=0.15)
         plt.fill_between(delays, avgCenter-bsCVar, avgCenter+bsCVar, facecolor='C3', alpha=0.15)
         plt.gca().set_ylim([136,142])
-        plt.gca().set_xlim([-0.4,3.2])
+        #plt.gca().set_xlim([-0.4,3.2])
     except NameError:
         pass
 
@@ -375,12 +378,16 @@ if cfg.plots.auger2d:
 
     plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270 eV ")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
-    #plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
-    #               cmap='bwr', vmax=cmax, vmin=-cmax)
-    plt.contourf(evs[ROI], delays, diffAcc[:,ROI],
-                   cmap='bwr', vmax=cmax, vmin=-cmax, levels=100)
-    plt.xlabel("Kinetic energy (eV)")
-    plt.ylabel("Delay (ps)")
+
+    if cfg.plots.auger2d == "CONTOUR":
+        plt.contourf(evs[ROI], delays, diffAcc[:,ROI],
+                  cmap='bwr', vmax=cmax, vmin=-cmax, levels=100)
+    else:
+        plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
+                   cmap='bwr', vmax=cmax, vmin=-cmax)
+
+    plt.xlabel("Kinetic energy [eV]")
+    plt.ylabel("Delay [ps]")
 
 if cfg.plots.photoShift:
     # quick plots for check. for more detailed analysis use photolineAnalysis.py
