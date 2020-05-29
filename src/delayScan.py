@@ -27,9 +27,9 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          #'fname'    : 'DelayScanZoom3_q22_270eV'
-                          #'fname'    : 'DelayScan_q25_270eV'
-                          'fname'    : 'bootstrapAppend'
+                          #'fname'    : 'DelayScanZoom3_q22_270eV',
+                          'fname'    : 'DelayScanZoom2_q30_270eV'
+                          #'fname'    : 'excFrac_test'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -41,37 +41,46 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (6,11)
                         },
-           'interactive' : False, #Set to true to suppress initial plots. delay range defaults to -0.5,3
-           'timeBounds'  : (-0.6,2.2),     #Delay bounds used if not interactive
+           'interactive' : False,       #Set to true to suppress initial plots. delay range defaults to -0.5,3
+           'timeBounds'  : (-0.6,2.2),  #Delay bounds used if not interactive
+           'decimate'    : False,       #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
+           'timeZero'    : 1178.45,     #Used to correct delays
+           'exc_frac'    : 0.22,        # If set the calculated spectrum is not the even-odd difference, but:
+                                        # (even-(1-exc_frac)*odd)/exc_frac. This is used for better auger shift evaluatios
 
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 20,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
-           'ioChunkSize' : 50000,
+
            'gmdNormalize': True,
            'useBAM'      : True,
-           'timeZero'    : 1178.45,   #Used to correct delays
-           'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
+           'ioChunkSize' : 50000,
            'bootstrap'   : None,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
                                   #Set to None for everything else
-
            'augerROI'    : (125,155),
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : "STANDARD",  #None, "STANDARD" or "CONTOUR"
-                          'augerIntensity' : False, #Only used when auger 2d is true
-                       'augerShift'     : True,
-                       'valence'        : False,
+                       'auger2d'        : True,        #None, "STANDARD" or "CONTOUR"
+                          'augerIntensity' : True,     #Only used when auger 2d is true
+                       'augerZeroX'     : True,
+
+                       'delay3d'        : (110,160),   #'waterfall' 3d plot
+
+                       'augerShift'     : False,        #Only works with exc_frac data
            },
+
            'writeOutput' : True, #Set to true to write out data in csv
            'onlyplot'    : True, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
 cfg = AttrDict(cfg)
+
+if cfg.bootstrap and cfg.exc_frac:
+    raise("bootstrap not available when exc_fract is set")
 
 if not cfg.onlyplot:
     idx = pd.HDFStore(cfg.data.path + cfg.data.index, mode = 'r')
@@ -97,6 +106,7 @@ if not cfg.onlyplot:
         pulses = pulses.query('index % 10 == 0')
 
     shotsData = utils.h5load('shotsData', tr, pulses)
+
 
     #Remove pulses with no corresponing shots
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
@@ -189,7 +199,11 @@ if not cfg.onlyplot:
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
         print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}", end='\r' )
-        shotsDiff = utils.getDiff(chunk, gmdData)
+        if cfg.exc_frac:
+            shotsDiff = utils.getExct(chunk, cfg.exc_frac, gmdData)
+        else:
+            shotsDiff = utils.getDiff(chunk, gmdData)
+
         for binId, delayBin in enumerate(delayBins):
             delayName, group = delayBin
             group = group.query(cfg.sdfilter)
@@ -206,7 +220,6 @@ if not cfg.onlyplot:
                     except KeyError:
                         pass
 
-
             delayBinIdx   = group.index.intersection(shotsDiff.index)
             delayBinTrace = shotsDiff.reindex(delayBinIdx)
             diffAcc[binId]  += -delayBinTrace.sum(axis=0)
@@ -217,16 +230,18 @@ if not cfg.onlyplot:
     idx.close()
     tr.close()
 
-    if cfg.bootstrap:
-        bsDiffAcc /= bsBinCount[:,:,None]
-    diffAcc /= binCount[:,None]
-
     #get axis labels
     delays = np.array( [name.mid for name, _ in delayBins] )
     #delays = np.array([bins["delay"].mean().values, bins["delay"].std().values])
 
     evConv = utils.mainTofEvConv(pulses.retarder.mean())
     evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
+
+    if cfg.bootstrap:
+        bsDiffAcc /= bsBinCount[:,:,None]
+    diffAcc /= binCount[:,None]
+
+    diffAcc = utils.jacobianCorrect(diffAcc, evs)
 
     # make dataframe and save data
     if cfg.writeOutput:
@@ -248,6 +263,7 @@ if not cfg.onlyplot:
         else:
             np.savez(cfg.output.path + cfg.output.fname,
                      diffAcc = diffAcc, evs=evs, delays=delays)
+
 if cfg.onlyplot:
     dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
     diffAcc = dataZ['diffAcc']
@@ -258,6 +274,17 @@ if cfg.onlyplot:
         bsDiffAcc = dataZ['bsDiffAcc']
     except KeyError:
         pass
+
+if '_noJacobian' in cfg.output.fname:
+    print('correcting jacobian')
+    diffAcc   = utils.jacobianCorrect(diffAcc, evs)
+    try:
+        bsDiffAcc = utils.jacobianCorrect(bsDiffAcc, evs)
+        np.savez(cfg.output.path + cfg.output.fname[:-11],
+                 diffAcc = diffAcc, bsDiffAcc=bsDiffAcc, evs=evs, delays=delays)
+    except:
+        np.savez(cfg.output.path + cfg.output.fname[:-11],
+                 diffAcc = diffAcc, evs=evs, delays=delays)
 
 #plot resulting image
 if cfg.plots.delay2d:
@@ -270,7 +297,57 @@ if cfg.plots.delay2d:
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
 
+if cfg.plots.delay3d:
+    from mpl_toolkits.mplot3d import Axes3D
+
+    ROI = slice(np.abs(evs - cfg.plots.delay3d[1]).argmin() , np.abs(evs - cfg.plots.delay3d[0]).argmin())
+    #Slice Traces over Auger ROI
+    sliced = diffAcc[:, ROI].copy()
+    slicedEvs = evs[ROI]
+
+    fig = plt.figure(figsize=(11, 8))
+    ax = plt.axes(projection='3d')
+
+    X, Y = np.meshgrid(slicedEvs, delays)
+    ax.plot_surface(X,Y, sliced, edgecolor='black')
+
 if cfg.plots.augerShift:
+    UNPUMPED_PEAK_POS = 137.136
+    EDGE_HEIGHT = 0.8
+
+    ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
+    #Slice Traces over Auger ROI
+    sliced = diffAcc[:, ROI].copy()
+    slicedEvs = evs[ROI]
+    len = sliced.shape[1]
+
+    lowPass = 50
+    sliced = np.fft.rfft(sliced, axis=1)
+    sliced[:,-lowPass:] *= (1-np.arange(0,1,lowPass))
+    sliced = np.fft.irfft(sliced, axis=1, n=len)
+
+    peakIdx = sliced.argmax(axis=1)
+    peakPos = slicedEvs[peakIdx] - UNPUMPED_PEAK_POS
+
+    edgeIdx = np.abs( sliced - EDGE_HEIGHT ).argmin(axis=1)
+    edgePos = slicedEvs[edgeIdx]
+
+    f= plt.figure(figsize=(9, 5))
+    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 1])
+
+    ax1 = f.add_subplot(gs[0])
+    plt.gca().xaxis.set_minor_locator(tck.AutoMinorLocator())
+    plt.ylabel("peak shift [eV]")
+    plt.plot(delays[:], peakPos[:], '+', color='C0')
+    plt.plot(delays[1:-1], utils.movAvg(peakPos[:],3), '-', color='C0')
+
+    ax1 = f.add_subplot(gs[1], sharex=ax1)
+    plt.xlabel("delay [ps]")
+    plt.ylabel("edge position [eV]")
+    plt.plot(delays[:], edgePos[:], 'x', color='C1')
+    plt.plot(delays[1:-1], utils.movAvg(edgePos[:],3), '-', color='C1')
+
+if cfg.plots.augerZeroX:
     #Calulates cross correlation between a and sign function, seems to work
     def signCorr(a):
         cuma = np.cumsum(a, axis=1)
@@ -314,23 +391,24 @@ if cfg.plots.augerShift:
     plt.ylabel("Diff. signal intensity [au]")
     plt.plot(delays, avgDiff)
 
+    startIdx = np.abs(avgDiff - 3).argmin()
+
     ax1 = f.add_subplot(gs[0], sharex=ax1)
     ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
     plt.xlabel("delay [ps]")
     plt.ylabel("peak position [eV]")
-    plt.plot(delays, zeroX, '+', label='zero crossing', color='C0')
-    plt.plot(delays, avgCenter, 'x', label='differential signal centroid', color='C3')
+    plt.plot(delays[startIdx:], zeroX[startIdx:], '+', label='zero crossing', color='C0')
+    plt.plot(delays[startIdx:], avgCenter[startIdx:], 'x', label='differential signal centroid', color='C3')
 
-    def movAvg(a, n=3) :
-        ret = np.cumsum(a, dtype=float)
-        ret[n:] = ret[n:] - ret[:-n]
-        return ret[n - 1:] / n
+    #plt.plot(delays[startIdx:], posCenter[startIdx:], '+',  label='positive centroid', color='C1')
+    #plt.plot(delays[startIdx:], negCenter[startIdx:], '+', label='negative centroid', color='C2')
 
-    plt.plot(delays[1:-1], movAvg(zeroX), '-', color='C0')
-    plt.plot(delays[1:-1], movAvg(avgCenter), '-', color='C3')
+    plt.plot(delays[startIdx+1:-1], utils.movAvg(zeroX[startIdx:],3), '-', color='C0')
+    plt.plot(delays[startIdx+1:-1], utils.movAvg(avgCenter[startIdx:],3), '-', color='C3')
+    #plt.plot(delays[startIdx+1:-1], movAvg(posCenter[startIdx:],3), '-', color='C1')
+    #plt.plot(delays[startIdx+1:-1], movAvg(negCenter[startIdx:],3), '-', color='C2')
 
     #If bootstrap data is present, use to to estimate errorbars
-
     try:
         raise NameError
         #avgCenter for bootstrap samples
@@ -372,9 +450,9 @@ if cfg.plots.auger2d:
 
         plt.plot(integ,delays)
         plt.xlabel(f"Integrated Auger Intensity")
-        plt.legend()
         f.add_subplot(gs[0], sharey=ax1)
         f.subplots_adjust(left=0.08, bottom=0.07, right=0.96, top=0.95, wspace=None, hspace=0.05)
+
 
     plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270 eV ")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
@@ -417,9 +495,5 @@ if cfg.plots.photoShift:
     plt.legend(handles=[PosMax, NegMax])
     plt.tight_layout()
 
-if cfg.plots.valence:
-    plt.figure()
-    valence = slice( np.abs(evs - 145).argmin() , np.abs(evs - 140).argmin())
-    plt.plot(delays, diffAcc.T[valence].sum(axis=0))
 
 plt.show()

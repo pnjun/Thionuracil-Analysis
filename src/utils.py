@@ -4,6 +4,12 @@ from scipy import interpolate
 import numpy as np
 import pandas as pd
 
+def movAvg(a, n) :
+    'simple moving average'
+    ret = np.cumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
+
 def filterPulses(pulses, filters):
     ''' Filters a df of pulses for all rows where parameters are within the bounds defined in filt object
         Possible filters attribute are coloums of pulses, they must be a tuple of (min, max)
@@ -33,6 +39,15 @@ def h5load(dfname, h5store, pulses, chunk=None):
            iterator=iter,
            chunksize= chunk )
 
+def jacobianCorrect(tofTraces, evs, renorm=50):
+    '''Corrects tofTraces using jacobian calculated from evs. renorm is used as
+       an additional rescale factor'''
+    jacobian      = evs.copy()
+    jacobian[:-1] -= evs[1:]
+    jacobian[-1]  = jacobian[-2]
+
+    tofTraces /= jacobian * renorm
+    return tofTraces
 
 def shotsDelay(delaysData, bamData=None, shotsNum = None):
     ''' Takes an array of delays and an array of BAM values and combines them, returing an array with the same shape of bamData offset with the delay value.
@@ -69,6 +84,47 @@ def shotsDelay(delaysData, bamData=None, shotsNum = None):
 
     return bam.get()
 
+
+def getExct(tofTrace, frac, gmd = None):
+    '''
+    Calculates the excited only spectrum given the even and odd traces and an estimate of the
+    excited fraction of molecules in the sample, as: (even-(1-frac)*odd)/frac.
+    '''
+    from numba import cuda
+    import cupy as cp
+
+    p = 1-frac
+
+    #Cuda kernel for pump probe difference calculation
+    @cuda.jit
+    def tofExc(tof):
+        row = 2 * cuda.blockIdx.x
+        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
+        tof[ row, col ] = ( tof[ row, col ] - p*tof[ row + 1, col ] ) / frac
+    @cuda.jit
+    def tofExcGMD(tof, gmd):
+        row = 2 * cuda.blockIdx.x
+        col = cuda.blockIdx.y*cuda.blockDim.x + cuda.threadIdx.x
+        tof[ row    , col ]  /= gmd[row]
+        tof[ row + 1, col ]  /= gmd[row + 1]
+        tof[ row, col ] = ( tof[ row, col ] - p*tof[ row + 1, col ] ) / frac
+
+    #Get difference data
+    tof = cp.array(tofTrace.to_numpy())
+
+    if gmd is not None:
+        #move gmd data to gpu, but only the subset corresponing to the data in tofTrace
+        cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
+        tofExcGMD[ (tof.shape[0] // 2 , tof.shape[1] // 64) , 64 ](tof, cuGmd)
+    else:
+        tofExc[ (tof.shape[0] // 2 , tof.shape[1] // 64) , 64 ](tof)
+
+    if tof.shape[1] == 3009:
+        #we have an extra point left there for future interpolation, drop it
+        tof[::2,-1] = 0
+
+    return pd.DataFrame( tof[::2].get(),
+                         index = tofTrace.index[::2], columns=tofTrace.columns)
 
 def getDiff(tofTrace, gmd = None, lowPass = None):
     '''
