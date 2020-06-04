@@ -42,9 +42,10 @@ def h5load(dfname, h5store, pulses, chunk=None):
 def jacobianCorrect(tofTraces, evs, renorm=50):
     '''Corrects tofTraces using jacobian calculated from evs. renorm is used as
        an additional rescale factor'''
-    jacobian      = evs.copy()
-    jacobian[:-1] -= evs[1:]
-    jacobian[-1]  = jacobian[-2]
+
+    jacobian = np.empty(evs.shape)
+    jacobian[:-1] = -np.diff(evs)
+    jacobian[-1] = jacobian[-2]
 
     tofTraces /= jacobian * renorm
     return tofTraces
@@ -276,7 +277,7 @@ class mainTofEvConv:
         evMin = -retarder + 1
         evMax = -retarder + 350
 
-        evRange = np.arange(evMin, evMax, 1)
+        evRange = np.arange(evMin, evMax, 0.01)
         tofVals = self.ev2tof( evRange )
         self.interpolator = interpolate.interp1d(tofVals, evRange, kind='linear')
 

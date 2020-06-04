@@ -387,6 +387,7 @@ if cfg.plots.augerZeroX:
     gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
 
     ax1 = f.add_subplot(gs[1])
+    plt.text(0.97, 0.85, 'b)', transform=ax1.transAxes)
     plt.xlabel("delay [ps]")
     plt.ylabel("Diff. signal intensity [au]")
     plt.plot(delays, avgDiff)
@@ -394,6 +395,7 @@ if cfg.plots.augerZeroX:
     startIdx = np.abs(avgDiff - 3).argmin()
 
     ax1 = f.add_subplot(gs[0], sharex=ax1)
+    plt.text(0.97, 0.95, 'a)', transform=ax1.transAxes)
     ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
     plt.xlabel("delay [ps]")
     plt.ylabel("peak position [eV]")
@@ -439,22 +441,25 @@ if cfg.plots.auger2d:
     if cfg.plots.augerIntensity:
         gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1])
         ax1 = f.add_subplot(gs[1])
+        plt.text(0.1, 0.95, 'b)', transform=ax1.transAxes)
 
         #Normalize and shift intensity
         integ = diffAcc[:,ROI].sum(axis=1)
         integ -= integ[:2].mean()
-        integ /= np.linalg.norm(integ)
+        #integ /= np.linalg.norm(integ)
 
         plt.setp(ax1.get_yticklabels(), visible=False)
         plt.tick_params(axis='y', labelsize=0, length = 0)
 
-        plt.plot(integ,delays)
-        plt.xlabel(f"Integrated Auger Intensity")
+        plt.plot(integ,delays, 'x', color='C0')
+        plt.plot(utils.movAvg(integ,3), delays[1:-1], '-', color='C0')
+
+        plt.xlabel(f"Integrated differential\nintensity[a.u.]")
         f.add_subplot(gs[0], sharey=ax1)
-        f.subplots_adjust(left=0.08, bottom=0.07, right=0.96, top=0.95, wspace=None, hspace=0.05)
+        f.subplots_adjust(left=0.08, bottom=0.1, right=0.96, top=0.95, wspace=None, hspace=0.03)
+        plt.text(0.05, 0.95, 'a)', transform=plt.gca().transAxes)
 
-
-    plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270 eV ")
+    #plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270 eV ")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
 
     if cfg.plots.auger2d == "CONTOUR":
