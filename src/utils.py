@@ -175,11 +175,12 @@ def getDiff(tofTrace, gmd = None, lowPass = None):
     return pd.DataFrame( tof[::2].get(),
                          index = tofTrace.index[::2], columns=tofTrace.columns)
 
-def traceAverage(tofTrace, gmd=None):
+def traceAverage(tofTrace, gmd=None, accumulate=False):
     import cupy as cp
     '''
     Averages all the given traces together. If gmd is given, traces are
     gmd normalized before averaging.
+    If accumulated is set to true traces are just summed together, not averaged
     '''
     tof = cp.array(tofTrace.to_numpy())
 
@@ -187,7 +188,12 @@ def traceAverage(tofTrace, gmd=None):
         cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
         tof /= cuGmd
 
-    return tof.mean(axis=0).get()
+    if accumulate:
+        out = tof.sum(axis=0)
+    else:
+        out = tof.mean(axis=0)
+
+    return out.get()
 
 def getInteg(tofTrace,  integSlice, gmd = None, getDiff = False):
     '''
