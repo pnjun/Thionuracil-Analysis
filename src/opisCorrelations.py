@@ -15,15 +15,15 @@ cfg = { 'data' : { 'path'     : '/media/Fast2/ThioUr/processed/',
                    'filename' : 'trOpistest2019-03-30T1900.h5',
                    'indexf'   : 'idOpistest2019-03-30T1900.h5'
                  },
-        'time' : { 'start' : datetime(2019,3,30,20,34,2).timestamp(),
-                   'stop'  : datetime(2019,3,30,20,34,58).timestamp(),
+        'time' : { 'start' : datetime(2019,3,30,20,36,2).timestamp(),
+                   'stop'  : datetime(2019,3,30,20,36,58).timestamp(),
                  },
 
         'averageShots'  : True,
 
         'ignoreMask'    : True,
         'photoline'     : 171,
-        'resortOpis'    : True, #Rescale opis energy subtracting undulator setting
+        'resortOpis'    : False, #Rescale opis energy subtracting undulator setting
 
         'decimate'    : False, #Decimate macrobunches before
 

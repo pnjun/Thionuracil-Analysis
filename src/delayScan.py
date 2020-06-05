@@ -28,8 +28,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                         },
            'output'   : { 'path'     : './data/',
                           #'fname'    : 'DelayScanZoom3_q22_270eV',
-                          'fname'    : 'DelayScanZoom2_q30_270eV'
-                          #'fname'    : 'excFrac_test'
+                          #'fname'    : 'DelayScanZoom2_q30_270eV'
+                          'fname'    : 'excFrac_test'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -45,8 +45,6 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'timeBounds'  : (-0.6,2.2),  #Delay bounds used if not interactive
            'decimate'    : False,       #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
            'timeZero'    : 1178.45,     #Used to correct delays
-           'exc_frac'    : 0.22,        # If set the calculated spectrum is not the even-odd difference, but:
-                                        # (even-(1-exc_frac)*odd)/exc_frac. This is used for better auger shift evaluatios
 
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
@@ -57,19 +55,15 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'useBAM'      : True,
 
            'ioChunkSize' : 50000,
-           'bootstrap'   : None,  #Number of bootstrap samples to make for variance estimation. Use only for augerShift.
+           'bootstrap'   : None,  #Number of bootstrap samples to make for variance estimation. Use only for aaugerZeroX.
                                   #Set to None for everything else
            'augerROI'    : (125,155),
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : True,        #None, "STANDARD" or "CONTOUR"
+                       'auger2d'        : False,        #None, "STANDARD" or "CONTOUR"
                           'augerIntensity' : True,     #Only used when auger 2d is true
-                       'augerZeroX'     : True,
-
-                       'delay3d'        : (110,160),   #'waterfall' 3d plot
-
-                       'augerShift'     : False,        #Only works with exc_frac data
+                       'augerZeroX'     : False,
            },
 
            'writeOutput' : True, #Set to true to write out data in csv
@@ -78,9 +72,6 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
       }
 
 cfg = AttrDict(cfg)
-
-if cfg.bootstrap and cfg.exc_frac:
-    raise("bootstrap not available when exc_fract is set")
 
 if not cfg.onlyplot:
     idx = pd.HDFStore(cfg.data.path + cfg.data.index, mode = 'r')
@@ -199,10 +190,7 @@ if not cfg.onlyplot:
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
         print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}", end='\r' )
-        if cfg.exc_frac:
-            shotsDiff = utils.getExct(chunk, cfg.exc_frac, gmdData)
-        else:
-            shotsDiff = utils.getDiff(chunk, gmdData)
+        shotsDiff = utils.getDiff(chunk, gmdData)
 
         for binId, delayBin in enumerate(delayBins):
             delayName, group = delayBin
@@ -296,56 +284,6 @@ if cfg.plots.delay2d:
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
-
-if cfg.plots.delay3d:
-    from mpl_toolkits.mplot3d import Axes3D
-
-    ROI = slice(np.abs(evs - cfg.plots.delay3d[1]).argmin() , np.abs(evs - cfg.plots.delay3d[0]).argmin())
-    #Slice Traces over Auger ROI
-    sliced = diffAcc[:, ROI].copy()
-    slicedEvs = evs[ROI]
-
-    fig = plt.figure(figsize=(11, 8))
-    ax = plt.axes(projection='3d')
-
-    X, Y = np.meshgrid(slicedEvs, delays)
-    ax.plot_surface(X,Y, sliced, edgecolor='black')
-
-if cfg.plots.augerShift:
-    UNPUMPED_PEAK_POS = 137.136
-    EDGE_HEIGHT = 0.8
-
-    ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
-    #Slice Traces over Auger ROI
-    sliced = diffAcc[:, ROI].copy()
-    slicedEvs = evs[ROI]
-    len = sliced.shape[1]
-
-    lowPass = 50
-    sliced = np.fft.rfft(sliced, axis=1)
-    sliced[:,-lowPass:] *= (1-np.arange(0,1,lowPass))
-    sliced = np.fft.irfft(sliced, axis=1, n=len)
-
-    peakIdx = sliced.argmax(axis=1)
-    peakPos = slicedEvs[peakIdx] - UNPUMPED_PEAK_POS
-
-    edgeIdx = np.abs( sliced - EDGE_HEIGHT ).argmin(axis=1)
-    edgePos = slicedEvs[edgeIdx]
-
-    f= plt.figure(figsize=(9, 5))
-    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 1])
-
-    ax1 = f.add_subplot(gs[0])
-    plt.gca().xaxis.set_minor_locator(tck.AutoMinorLocator())
-    plt.ylabel("peak shift [eV]")
-    plt.plot(delays[:], peakPos[:], '+', color='C0')
-    plt.plot(delays[1:-1], utils.movAvg(peakPos[:],3), '-', color='C0')
-
-    ax1 = f.add_subplot(gs[1], sharex=ax1)
-    plt.xlabel("delay [ps]")
-    plt.ylabel("edge position [eV]")
-    plt.plot(delays[:], edgePos[:], 'x', color='C1')
-    plt.plot(delays[1:-1], utils.movAvg(edgePos[:],3), '-', color='C1')
 
 if cfg.plots.augerZeroX:
     #Calulates cross correlation between a and sign function, seems to work

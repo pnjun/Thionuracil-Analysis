@@ -15,13 +15,13 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'TRNEXAFS_2p_Integ_pPol_NoGMD'
+                          'fname'    : 'TRNEXAFS_2p_Multip_sPol_NoGMD'
                         },
-           'time'     : { 'start' : datetime(2019,4,5,20,59,0).timestamp(),
-                          'stop'  : datetime(2019,4,6,18,50,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,5,28,0).timestamp(),
+                          'stop'  : datetime(2019,4,6,13,28,0).timestamp(),
                         },
            'adHocFilter' : False, #A couple of ad-hoc filters
-           'sPolFilter'  : True,
+           'sPolFilter'  : False,
            'filters'  : { 'undulatorEV' : (160.,173),
                           'retarder'    : (-11,-9),
                           #'delay'       : (1170, 1185.0),
@@ -32,7 +32,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'sdfilter' : "uvPow > 20 & GMD > 0.5 & BAM != 0",
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 25,      # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 6,      # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
            'gmdNormalize': False,
            'useBAM'      : True,
@@ -40,7 +40,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
 
            #either MULTIPLOT for one nexafs 2d plot per dealay
            #or INTEGRAL for one single 2dplot with integrated data over ROI
-           'mode'        : 'INTEGRAL',
+           'mode'        : 'MULTIPLOT',
            'integROIeV'  : (100,180),
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
@@ -294,16 +294,16 @@ if cfg.plots.trnexafs and 'pumpAcc' not in globals(): #Plot style for MULTIPLOT 
     ROIslice = slice( np.abs(evs - cfg.integROIeV[1]).argmin() ,
                       np.abs(evs - cfg.integROIeV[0]).argmin() )
 
-    f = plt.figure(figsize=(13, 10))
-    gs = gridspec.GridSpec(plotGridY, plotGridX)
+    f = plt.figure(figsize=(9, 14))
+    gs = gridspec.GridSpec(plotGridX, plotGridY)
 
-    cmax = np.nanpercentile(np.abs(diffAcc),98)
+    cmax = np.nanpercentile(np.abs(diffAcc),99.8)
     for n in range(delays.size):
         ax = f.add_subplot(gs[n])
         ax.title.set_text(f'Delay {delays[n]:.3}')
         im = plt.pcolormesh(xevs[ROIslice],yenergy, diffAcc[:,n,ROIslice], cmap='bwr', vmax=cmax, vmin=-cmax)
 
-    f.subplots_adjust(left=0.08, bottom=0.11, right=0.96, top=0.95)
+    f.subplots_adjust(left=0.08, bottom=0.11, right=0.92, top=0.96)
     cbar_ax = f.add_axes([0.12, 0.04, 0.8, 0.02])
     plt.colorbar(im, cax=cbar_ax, orientation='horizontal')
     ticks = cbar_ax.xaxis.get_ticklabels()
