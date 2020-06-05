@@ -175,6 +175,20 @@ def getDiff(tofTrace, gmd = None, lowPass = None):
     return pd.DataFrame( tof[::2].get(),
                          index = tofTrace.index[::2], columns=tofTrace.columns)
 
+def traceAverage(tofTrace, gmd=None):
+    import cupy as cp
+    '''
+    Averages all the given traces together. If gmd is given, traces are
+    gmd normalized before averaging.
+    '''
+    tof = cp.array(tofTrace.to_numpy())
+
+    if gmd is not None:
+        cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
+        tof /= cuGmd
+
+    return tof.mean(axis=0).get()
+
 def getInteg(tofTrace,  integSlice, gmd = None, getDiff = False):
     '''
     Integrates the traces over the given slice and returns the results.

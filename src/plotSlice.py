@@ -11,7 +11,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
                           'trace'    : 'fisrt_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,23,36,10).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,26,23,29,10).timestamp(),
                           'stop'  : datetime(2019,3,26,23,36,59).timestamp(),
                         },
            'plotFraction' : False
@@ -24,7 +24,7 @@ tr  = pd.HDFStore(cfg.data.path + cfg.data.trace, 'r')
 
 pulse = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.stop')
 gmd   = utils.h5load('shotsData', tr, pulse).GMD
-data = utils.h5load('shotsTof', tr, pulse)
+data  = utils.h5load('shotsTof', tr, pulse)
 
 
 idx.close()
@@ -40,8 +40,11 @@ evs = evConv(data.columns)
 
 data = utils.jacobianCorrect(data, evs)
 
-even = -data.query('shotNum % 2 == 0').mean()
-odd  = -data.query('shotNum % 2 == 1').mean()
+even = -data.query('shotNum % 2 == 0')
+odd  = -data.query('shotNum % 2 == 1')
+
+even = utils.traceAverage(even)
+odd =  utils.traceAverage(odd)
 
 plt.figure()
 #plt.suptitle("Static FEL only spectrum")
@@ -49,7 +52,8 @@ ax = plt.gca()
 ax.set_ylabel('Intensity [au]')
 ax.set_xlabel('Kinetic Energy [eV]')
 plt.plot(evs, odd,  label='unpumped')
-#plt.plot(evs, even, label='UV pumped')
+plt.plot(evs, even, label='UV pumped')
+
 #plt.legend()
 plt.gca().set_xlim([-retarder-10, maxEv+20])
 
