@@ -8,6 +8,7 @@ from matplotlib import gridspec
 import matplotlib.ticker as tck
 from scipy.optimize import curve_fit
 from scipy.signal import correlate
+from scipy import special
 import time
 
 import sys
@@ -30,7 +31,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'fname'    : 'excitedScan'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
-                          'stop'  : datetime(2019,3,26,20,7,0).timestamp(),   #7
+                          'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
            #'time'     : { 'start' : datetime(2019,4,1,1,43,0).timestamp(),
            #               'stop'  : datetime(2019,4,1,2,56,0).timestamp(),
                         },
@@ -43,8 +44,6 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'timeBounds'  : (-0.6,2.2),  #Delay bounds used if not interactive
            'decimate'    : False,       #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
            'timeZero'    : 1178.45,     #Used to correct delays
-           'exc_frac'    : 0.22,        # If set the calculated spectrum is not the even-odd difference, but:
-                                        # (even-(1-exc_frac)*odd)/exc_frac. This is used for better auger shift evaluatios
 
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
@@ -55,15 +54,24 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'useBAM'      : True,
            'ioChunkSize' : 50000,
 
-           'augerROI'    : (125,155),
+           'augerROI'      : (125,155),
+           'exc_frac'      : 0.22,        #Excited fraction to use for excited spectrum reconstruction
+
+           'pulse_t0'      :-0.020,       #Additional offset on UV pulse center (so that delayscale remains consisten with online value)
+           'pulse_len'     : 0.100,       #UV pulse lenght in ps, for excited_frac convolution. Use None for constant exct_frac
+           'exc_normalize' : True,        #Set to True to renormalize the excited spectrum by 1/exct_frac
+           'min_frac'      : 0.05,        #Ignore bins where the excited fraction is less than setpoint
+
            'plots' : {
-                       'delay2d'        : False,
+                       'tracePlots'     : False,
+                       'delay2d'        : True,
                        'delay3d'        : (110,160),   #'waterfall' 3d plot
                        'augerShift'     : True,        #Only works with exc_frac data
-           },
+                       'frac_plot'      : False,
+                     },
 
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : False, #Set to true to load data form 'output' file and
+           'onlyplot'    : True, #Set to true to load data form 'output' file and
                                  #plot only.
       }
 
@@ -173,7 +181,7 @@ if not cfg.onlyplot:
     for counter, chunk in enumerate(shotsTof):
         print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}", end='\r' )
         gsTraces = chunk.query('shotNum % 2 == 1')
-        gsAcc   += utils.traceAverage(gsTraces, accumulate=True)
+        gsAcc   += -utils.traceAverage(gsTraces, accumulate=True)
         gsCount += gsTraces.shape[0]
 
         for binId, delayBin in enumerate(delayBins):
@@ -210,10 +218,46 @@ if not cfg.onlyplot:
 if cfg.onlyplot:
     dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
     exAcc = dataZ['exAcc']
-    gsAcc = dataZ['gsAcc']
+    gsAcc = -dataZ['gsAcc']
 
     delays = dataZ['delays']
     evs    = dataZ['evs']
+
+
+if cfg.pulse_len:
+    f = cfg.exc_frac * 0.5*(special.erf( (delays-cfg.pulse_t0) / cfg.pulse_len )+1)
+else:
+    f = np.ones(exAcc.shape[0])*cfg.exc_frac
+
+f = f.reshape((-1,1))
+exAcc = (exAcc - (1-f)*gsAcc )
+
+if cfg.exc_normalize:
+    exAcc /= f
+
+if cfg.plots.frac_plot:
+    plt.plot(delays, f)
+
+if cfg.min_frac:
+    exAcc  = exAcc[ f[:,0] > cfg.min_frac, : ]
+    delays = delays[ f[:,0] > cfg.min_frac ]
+
+if cfg.plots.tracePlots:
+    plt.figure(figsize=(9, 7))
+    plt.plot(evs, gsAcc, label="Ground State")
+    plt.plot(evs, exAcc[-1], label="Excited State")
+    plt.legend()
+
+#plot resulting image
+if cfg.plots.delay2d:
+    ROI = slice(np.abs(evs - 270).argmin() , None)
+    plt.figure(figsize=(9, 7))
+    plt.suptitle("Kinetic Energy vs Delay.")
+    cmax = np.percentile(np.abs(exAcc[:,ROI]),99.5)
+    plt.pcolormesh(evs[ROI], delays, exAcc[:,ROI],
+                   cmap='bwr', vmax=cmax, vmin=-cmax)
+    plt.xlabel("Kinetic energy (eV)")
+    plt.ylabel("Delay (ps)")
 
 if cfg.plots.delay3d:
     from mpl_toolkits.mplot3d import Axes3D
@@ -230,25 +274,28 @@ if cfg.plots.delay3d:
     ax.plot_surface(X,Y, sliced, edgecolor='black')
 
 if cfg.plots.augerShift:
-    UNPUMPED_PEAK_POS = 137.136
-    EDGE_HEIGHT = 0.8
+    EDGE_RATIO = 0.2 #Edge is detected whe signal goes over 20% of peak height
 
     ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
     #Slice Traces over Auger ROI
-    sliced = exAcc[:, ROI].copy()
+    sliced    = exAcc[:, ROI].copy()
+    slicedGS  = gsAcc[ROI].copy()
     slicedEvs = evs[ROI]
     len = sliced.shape[1]
 
-    lowPass = 50
-    sliced = np.fft.rfft(sliced, axis=1)
-    sliced[:,-lowPass:] *= (1-np.arange(0,1,lowPass))
-    sliced = np.fft.irfft(sliced, axis=1, n=len)
+    #lowPass = 50
+    #sliced = np.fft.rfft(sliced, axis=1)
+    #sliced[:,-lowPass:] *= (1-np.arange(0,1,lowPass))
+    #sliced = np.fft.irfft(sliced, axis=1, n=len)
 
-    peakIdx = sliced.argmax(axis=1)
-    peakPos = slicedEvs[peakIdx] - UNPUMPED_PEAK_POS
+    peakIdx   = sliced.argmax(axis=1)
+    peakGSIdx = slicedGS.argmax()
+    peakPos = slicedEvs[peakIdx] - slicedEvs[peakGSIdx]
+    peakVal = sliced[ np.arange(peakIdx.shape[0]) , peakIdx ].reshape((-1,1))
 
-    edgeIdx = np.abs( sliced - EDGE_HEIGHT ).argmin(axis=1)
-    edgePos = slicedEvs[edgeIdx]
+    edgeIdx   = np.abs( sliced   - peakVal*EDGE_RATIO ).argmin(axis=1)
+    edgeGSIdx = np.abs( slicedGS - slicedGS[peakGSIdx]*EDGE_RATIO ).argmin()
+    edgePos = slicedEvs[edgeIdx] - slicedEvs[edgeGSIdx]
 
     f= plt.figure(figsize=(9, 5))
     gs = gridspec.GridSpec(2, 1, height_ratios=[1, 1])
@@ -261,7 +308,7 @@ if cfg.plots.augerShift:
 
     ax1 = f.add_subplot(gs[1], sharex=ax1)
     plt.xlabel("delay [ps]")
-    plt.ylabel("edge position [eV]")
+    plt.ylabel("edge shift [eV]")
     plt.plot(delays[:], edgePos[:], 'x', color='C1')
     plt.plot(delays[1:-1], utils.movAvg(edgePos[:],3), '-', color='C1')
 

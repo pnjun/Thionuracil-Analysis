@@ -28,8 +28,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                         },
            'output'   : { 'path'     : './data/',
                           #'fname'    : 'DelayScanZoom3_q22_270eV',
-                          #'fname'    : 'DelayScanZoom2_q30_270eV'
-                          'fname'    : 'excFrac_test'
+                          'fname'    : 'DelayScanZoom2_q30_270eV'
+                          #'fname'    : 'excFrac_test'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -63,7 +63,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                        'photoShift'     : False,
                        'auger2d'        : False,        #None, "STANDARD" or "CONTOUR"
                           'augerIntensity' : True,     #Only used when auger 2d is true
-                       'augerZeroX'     : False,
+                       'augerZeroX'     : True,
            },
 
            'writeOutput' : True, #Set to true to write out data in csv
