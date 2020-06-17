@@ -28,7 +28,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'excitedScan'
+                          'fname'    : 'excitedScanB30_'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -48,7 +48,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 20,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 30,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
 
            'gmdNormalize': True,
            'useBAM'      : True,
@@ -218,7 +218,7 @@ if not cfg.onlyplot:
 if cfg.onlyplot:
     dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
     exAcc = dataZ['exAcc']
-    gsAcc = -dataZ['gsAcc']
+    gsAcc = dataZ['gsAcc']
 
     delays = dataZ['delays']
     evs    = dataZ['evs']
