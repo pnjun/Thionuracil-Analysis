@@ -28,7 +28,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           #'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'excitedScanB30_'
+                          'fname'    : 'excitedScanB35'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -48,7 +48,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 30,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 35,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
 
            'gmdNormalize': True,
            'useBAM'      : True,
@@ -59,15 +59,15 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
 
            'pulse_t0'      :-0.020,       #Additional offset on UV pulse center (so that delayscale remains consisten with online value)
            'pulse_len'     : 0.100,       #UV pulse lenght in ps, for excited_frac convolution. Use None for constant exct_frac
-           'exc_normalize' : True,        #Set to True to renormalize the excited spectrum by 1/exct_frac
+           'exc_normalize' : False,        #Set to True to renormalize the excited spectrum by 1/exct_frac
            'min_frac'      : 0.05,        #Ignore bins where the excited fraction is less than setpoint
 
            'plots' : {
                        'tracePlots'     : False,
-                       'delay2d'        : True,
+                       'delay2d'        : False,
                        'delay3d'        : (110,160),   #'waterfall' 3d plot
                        'augerShift'     : True,        #Only works with exc_frac data
-                       'frac_plot'      : False,
+                       'frac_plot'      : True,
                      },
 
            'writeOutput' : True, #Set to true to write out data in csv
@@ -295,7 +295,7 @@ if cfg.plots.augerShift:
 
     edgeIdx   = np.abs( sliced   - peakVal*EDGE_RATIO ).argmin(axis=1)
     edgeGSIdx = np.abs( slicedGS - slicedGS[peakGSIdx]*EDGE_RATIO ).argmin()
-    edgePos = slicedEvs[edgeIdx] - slicedEvs[edgeGSIdx]
+    edgePos = slicedEvs[edgeIdx] #- slicedEvs[edgeGSIdx]
 
     f= plt.figure(figsize=(9, 5))
     gs = gridspec.GridSpec(2, 1, height_ratios=[1, 1])
@@ -308,7 +308,7 @@ if cfg.plots.augerShift:
 
     ax1 = f.add_subplot(gs[1], sharex=ax1)
     plt.xlabel("delay [ps]")
-    plt.ylabel("edge shift [eV]")
+    plt.ylabel("edge position [eV]")
     plt.plot(delays[:], edgePos[:], 'x', color='C1')
     plt.plot(delays[1:-1], utils.movAvg(edgePos[:],3), '-', color='C1')
 

@@ -195,6 +195,20 @@ def traceAverage(tofTrace, gmd=None, accumulate=False):
 
     return out.get()
 
+def gmdCorrect(tofTrace, gmd):
+    import cupy as cp
+    '''
+    Normalizes traces on gmd
+    '''
+    tof = cp.array(tofTrace.to_numpy())
+
+    cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
+    tof /= cuGmd[:, None]
+
+    return pd.DataFrame( tof.get(),
+                         index = tofTrace.index, columns=tofTrace.columns)
+
+
 def getInteg(tofTrace,  integSlice, gmd = None, getDiff = False):
     '''
     Integrates the traces over the given slice and returns the results.

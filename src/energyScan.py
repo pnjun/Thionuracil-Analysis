@@ -13,36 +13,40 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'second_block.h5'
+                          'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'energyScan_2S_P_2ps_highUv_EKinNorm'
+                          'fname'    : 'energyScan_2p_thirdBlock49-57'
                         },
-           'time'     : { 'start' : datetime(2019,3,31,1,43,0).timestamp(),
-                          'stop'  : datetime(2019,3,31,3,48,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,17,26,0).timestamp(),
+                          'stop'  : datetime(2019,4,6,5,13,0).timestamp(),
                         },
-           'filters'  : {'retarder'    : (-15,5),
-                          'waveplate'  : (10,15),
-                          'delay'      : (1255.0, 1255.5)
+           'filters'  : { 'retarder'    : (-15,5),
+                          #'waveplate'  : (10,15),
+                          #'delay'      : (1255.0, 1255.5),
+                          'undulatorEV': (150,180)
                         },
            'sdfilter' : "GMD > 2.5", # filter for shotsdata parameters used in query method
 
            'ioChunkSize' : 50000,
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
-           'gmdNormalize'      : False,
-           'highEKinNormalize' : True, #Set to true to use average of high Ekin  (>270) signal to normalize traces
+           'gmdNormalize': True,
 
-           'onlyOdd'     : False, #Set to true if ony odd shots should be used, otherwise all shots are used
-           'difference'  : True, #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
+
+           'onlyOdd'     : True, #Set to true if ony odd shots should be used, otherwise all shots are used
+           'difference'  : False, #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
            'timeZero'    : 1257.2,   #Used to correct delays
 
+           'normAndJac'  : True, #Set to true to use normalize traces and apply Jacobian Correction
            'plots' : {
-                       'energy2d'      : (0, 250),
-                       'ROIIntegral'   : (100, 180),
-                       'uvtext'        : "(P pol, High Uv, 2ps delay)"
+                       'energy2d'      : (50, 220),
+                       'ROIIntegral'   : (50, 220),
+                       'plotSlice'     : 1,
+                       'uvtext'        : ""#"(P pol, High Uv, 2ps delay)"
+
            },
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : True, #Set to true to load data form 'output' file and
+           'onlyplot'    : False, #Set to true to load data form 'output' file and
                                  #plot only.
 
       }
@@ -88,10 +92,7 @@ if not cfg.onlyplot:
 
     #Plot relevant parameters
     utils.plotParams(shotsData)
-
-    if cfg.gmdNormalize and not cfg.difference:
-        raise NotImplementedError("DUH")
-    gmdData = shotsData.GMD if cfg.gmdNormalize else None
+    gmdData = shotsData.GMD
 
     #Bin data
     bins = pulses.groupby( 'undulatorEV' )
@@ -112,6 +113,8 @@ if not cfg.onlyplot:
 
         if cfg.difference:
             chunk = utils.getDiff(chunk, gmdData)
+        elif cfg.gmdNormalize:
+            chunk = utils.gmdCorrect(chunk, gmdData)
 
         chunkIdx = shotsData.index.intersection(chunk.index)
         chunk = chunk.reindex(chunkIdx)
@@ -120,7 +123,7 @@ if not cfg.onlyplot:
             name, group = bin
             binTrace = chunk.query('pulseId in @group.index')
 
-            traceAcc[binId] += -binTrace.sum(axis=0) # - sign is because signal is negative
+            traceAcc[binId] += -binTrace.sum(axis=0)
             binCount[binId] += binTrace.shape[0]
 
     idx.close()
@@ -146,9 +149,28 @@ if cfg.onlyplot:
     energy   = dataZ['energy']
     evs      = dataZ['evs']
 
-if cfg.highEKinNormalize:
-    NormROI = slice( None , np.abs(evs - 270).argmin() )
-    traceAcc /= traceAcc[:,NormROI].sum(axis=1)[:,None]
+'''
+if '_noJacobian' in cfg.output.fname:
+    print('correcting jacobian')
+    traceAcc   = utils.jacobianCorrect(traceAcc, evs)
+    np.savez(cfg.output.path + cfg.output.fname[:-11],
+                 traceAcc = traceAcc, evs=evs, energy = energy)
+'''
+
+if cfg.normAndJac:
+    traceAcc -= traceAcc.min(axis=1)[:,None]
+
+    NormROI   = slice( None , np.abs(evs - 270).argmin() )
+    traceAcc /= traceAcc[:,NormROI].mean(axis=1)[:,None]
+
+    traceAcc = utils.jacobianCorrect(traceAcc, evs)
+
+if cfg.plots.plotSlice:
+    ROI = slice(np.abs(evs - cfg.plots.energy2d[1]).argmin() ,
+                np.abs(evs - cfg.plots.energy2d[0]).argmin() )
+    f = plt.figure(figsize=(12, 8))
+    plt.plot(evs[ROI], traceAcc[cfg.plots.plotSlice,ROI])
+    plt.suptitle(f"Ekin spectrum at {energy[cfg.plots.plotSlice]:.2f} eV")
 
 #plot resulting image
 if cfg.plots.energy2d:
@@ -179,7 +201,7 @@ if cfg.plots.energy2d:
             plt.xlabel("Integrated Intensity")
 
         f.add_subplot(gs[0], sharey=ax1)
-        f.subplots_adjust(left=0.08, bottom=0.07, right=0.96, top=0.95, wspace=None, hspace=0.05)
+        f.subplots_adjust(left=0.08, bottom=0.07, right=0.96, top=0.95, wspace=0.05, hspace=None)
 
     if cfg.difference:
         plt.suptitle(f"Kinetic Energy vs Photon Energy {cfg.plots.uvtext}")
@@ -188,10 +210,10 @@ if cfg.plots.energy2d:
                        cmap='bwr', vmax=cmax, vmin=-cmax)
     else:
         plt.suptitle("Kinetic Energy vs Photon Energy")
-        cmax = np.percentile(np.abs(traceAcc[:,ROI]),91)
-        cmin = np.percentile(np.abs(traceAcc[:,ROI]),12)
+        #cmax = np.percentile(np.abs(traceAcc[:,ROI]),99)
+        #cmin = np.percentile(np.abs(traceAcc[:,ROI]),1)
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
-                        cmap='bone_r', vmax=cmax, vmin=cmin)
+                        cmap='bone_r')#, vmax=cmax, vmin=cmin)
 
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Photon energy (eV)")
