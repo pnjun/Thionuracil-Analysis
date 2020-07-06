@@ -16,7 +16,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'energyScan_2p_thirdBlock49-57'
+                          'fname'    : 'energyScan_2p_thirdBlock49_noJac'
                         },
            'time'     : { 'start' : datetime(2019,4,5,17,26,0).timestamp(),
                           'stop'  : datetime(2019,4,6,5,13,0).timestamp(),
@@ -30,7 +30,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
 
            'ioChunkSize' : 50000,
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
-           'gmdNormalize': True,
+           'gmdNormalize': False,
 
 
            'onlyOdd'     : True, #Set to true if ony odd shots should be used, otherwise all shots are used
@@ -39,14 +39,15 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
 
            'normAndJac'  : True, #Set to true to use normalize traces and apply Jacobian Correction
            'plots' : {
-                       'energy2d'      : (50, 220),
-                       'ROIIntegral'   : (50, 220),
-                       'plotSlice'     : 1,
+                       'energy2d'      : (30, 190),
+                       'ROIIntegral'   : (30, 190),
+                       'plotSlice'     : [3,-1],
+                            'Katritzky': False,
                        'uvtext'        : ""#"(P pol, High Uv, 2ps delay)"
 
            },
            'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : False, #Set to true to load data form 'output' file and
+           'onlyplot'    : True, #Set to true to load data form 'output' file and
                                  #plot only.
 
       }
@@ -168,9 +169,19 @@ if cfg.normAndJac:
 if cfg.plots.plotSlice:
     ROI = slice(np.abs(evs - cfg.plots.energy2d[1]).argmin() ,
                 np.abs(evs - cfg.plots.energy2d[0]).argmin() )
-    f = plt.figure(figsize=(12, 8))
-    plt.plot(evs[ROI], traceAcc[cfg.plots.plotSlice,ROI])
-    plt.suptitle(f"Ekin spectrum at {energy[cfg.plots.plotSlice]:.2f} eV")
+    f = plt.figure(figsize=(9, 3))
+
+    plt.plot(evs[ROI], traceAcc[cfg.plots.plotSlice[0],ROI], label=f'{energy[cfg.plots.plotSlice[0]]:.2f} eV')
+    if cfg.plots.Katritzky:
+        kData = np.loadtxt('Katritzky_1990.csv', delimiter=',')
+        plt.plot(kData[:,0]+(energy[cfg.plots.plotSlice[0]]-21.21),kData[:,1]*30)
+
+
+    plt.plot(evs[ROI], traceAcc[cfg.plots.plotSlice[1],ROI], label=f'{energy[cfg.plots.plotSlice[1]]:.2f} eV')
+    plt.xlabel("Kinetic energy (eV)")
+    plt.ylabel(f"Intensity [a.u.]")
+    f.subplots_adjust(left=0.08, bottom=0.15, right=0.96, top=0.95)
+    plt.legend()
 
 #plot resulting image
 if cfg.plots.energy2d:
@@ -184,7 +195,7 @@ if cfg.plots.energy2d:
     if cfg.plots.ROIIntegral:
         gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1])
         ax1 = f.add_subplot(gs[1])
-
+        plt.text(0.915, 0.97, 'b)', transform=plt.gca().transAxes)
         integROI = slice( np.abs(evs - cfg.plots.ROIIntegral[1]).argmin() ,
                           np.abs(evs - cfg.plots.ROIIntegral[0]).argmin() )
         integ = traceAcc[:,integROI].sum(axis=1)
@@ -201,6 +212,7 @@ if cfg.plots.energy2d:
             plt.xlabel("Integrated Intensity")
 
         f.add_subplot(gs[0], sharey=ax1)
+        plt.text(0.97, 0.97, 'a)', transform=plt.gca().transAxes)
         f.subplots_adjust(left=0.08, bottom=0.07, right=0.96, top=0.95, wspace=0.05, hspace=None)
 
     if cfg.difference:
@@ -209,7 +221,6 @@ if cfg.plots.energy2d:
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
                        cmap='bwr', vmax=cmax, vmin=-cmax)
     else:
-        plt.suptitle("Kinetic Energy vs Photon Energy")
         #cmax = np.percentile(np.abs(traceAcc[:,ROI]),99)
         #cmin = np.percentile(np.abs(traceAcc[:,ROI]),1)
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
