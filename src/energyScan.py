@@ -13,18 +13,20 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'third_block.h5'
+                          'trace'    : 'second_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'energyScan_2p_thirdBlock49_noJac'
+                          'fname'    : 'energyScan_2s_secondBlock_noJac'
                         },
-           'time'     : { 'start' : datetime(2019,4,5,17,26,0).timestamp(),
-                          'stop'  : datetime(2019,4,6,5,13,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,30,20,16,0).timestamp(),
+                          'stop'  : datetime(2019,3,31,14,00,0).timestamp(),
+                          #'start' : datetime(2019,4,5,17,26,0).timestamp(),
+                          #'stop'  : datetime(2019,4,6,5,13,0).timestamp(),
                         },
            'filters'  : { 'retarder'    : (-15,5),
-                          #'waveplate'  : (10,15),
+                          'waveplate'   : (9,16),
                           #'delay'      : (1255.0, 1255.5),
-                          'undulatorEV': (150,180)
+                          'undulatorEV': (205,240)
                         },
            'sdfilter' : "GMD > 2.5", # filter for shotsdata parameters used in query method
 
@@ -37,10 +39,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'difference'  : False, #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
            'timeZero'    : 1257.2,   #Used to correct delays
 
-           'normAndJac'  : True, #Set to true to use normalize traces and apply Jacobian Correction
+           'normAndJac'  : 150, #Set to true to use normalize traces on data over this many evs and apply Jacobian Correction
            'plots' : {
-                       'energy2d'      : (30, 190),
-                       'ROIIntegral'   : (30, 190),
+                       'energy2d'      : (20, 250),
+                       'ROIIntegral'   : (20, 85),
                        'plotSlice'     : [3,-1],
                             'Katritzky': False,
                        'uvtext'        : ""#"(P pol, High Uv, 2ps delay)"
@@ -161,7 +163,7 @@ if '_noJacobian' in cfg.output.fname:
 if cfg.normAndJac:
     traceAcc -= traceAcc.min(axis=1)[:,None]
 
-    NormROI   = slice( None , np.abs(evs - 270).argmin() )
+    NormROI   = slice( None , np.abs(evs - cfg.normAndJac).argmin() )
     traceAcc /= traceAcc[:,NormROI].mean(axis=1)[:,None]
 
     traceAcc = utils.jacobianCorrect(traceAcc, evs)

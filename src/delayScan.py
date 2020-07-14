@@ -58,12 +58,14 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'bootstrap'   : None,  #Number of bootstrap samples to make for variance estimation. Use only for aaugerZeroX.
                                   #Set to None for everything else
            'augerROI'    : (125,155),
+           'delayOffset' : -0.04,  #Additional shift to time zero for plotting
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : False,        #None, "STANDARD" or "CONTOUR"
+                       'auger2d'        : True,        #None, "STANDARD" or "CONTOUR"
                           'augerIntensity' : True,     #Only used when auger 2d is true
                        'augerZeroX'     : True,
+                       'timeZero'       : False#(130,140)
            },
 
            'writeOutput' : True, #Set to true to write out data in csv
@@ -274,6 +276,9 @@ if '_noJacobian' in cfg.output.fname:
         np.savez(cfg.output.path + cfg.output.fname[:-11],
                  diffAcc = diffAcc, evs=evs, delays=delays)
 
+if cfg.delayOffset:
+    delays -= cfg.delayOffset
+
 #plot resulting image
 if cfg.plots.delay2d:
     ROI = slice(np.abs(evs - 270).argmin() , None)
@@ -284,6 +289,7 @@ if cfg.plots.delay2d:
                    cmap='bwr', vmax=cmax, vmin=-cmax)
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Delay (ps)")
+
 
 if cfg.plots.augerZeroX:
     #Calulates cross correlation between a and sign function, seems to work
@@ -330,13 +336,21 @@ if cfg.plots.augerZeroX:
     plt.ylabel("Diff. signal intensity [au]")
     plt.plot(delays, avgDiff)
 
+    '''def stepCorr(a):
+        cuma = np.cumsum(a)
+        suma = np.sum(a)
+        return suma - cuma
+
+    xcorr = stepCorr(avgDiff - avgDiff.mean())
+    plt.plot(delays,xcorr)'''
+
     startIdx = np.abs(avgDiff - 3).argmin()
 
     ax1 = f.add_subplot(gs[0], sharex=ax1)
     plt.text(0.97, 0.95, 'a)', transform=ax1.transAxes)
     ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
     plt.xlabel("delay [ps]")
-    plt.ylabel("peak position [eV]")
+    plt.ylabel("Kinetic energy [eV]")
     plt.plot(delays[startIdx:], zeroX[startIdx:], '+', label='zero crossing', color='C0')
     plt.plot(delays[startIdx:], avgCenter[startIdx:], 'x', label='differential signal centroid', color='C3')
 
@@ -438,5 +452,22 @@ if cfg.plots.photoShift:
     plt.legend(handles=[PosMax, NegMax])
     plt.tight_layout()
 
+
+if cfg.plots.timeZero:
+    #Calulates cross correlation between a and step function, seems to work
+    def stepCorr(a):
+        cuma = np.cumsum(a)
+        suma = np.sum(a)
+        return suma - cuma
+
+    ROI = slice(np.abs(evs - cfg.plots.timeZero[1]).argmin() , np.abs(evs - cfg.plots.timeZero[0]).argmin())
+    integ = diffAcc[:, ROI].sum(axis=1)
+    integ-= integ.mean()
+
+    xcorr = stepCorr(integ)
+
+    plt.figure()
+    plt.plot(delays,integ)
+    plt.plot(delays,xcorr)
 
 plt.show()
