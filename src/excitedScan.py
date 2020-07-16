@@ -57,9 +57,9 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'augerROI'      : (125,155),
            'exc_frac'      : 0.22,        #Excited fraction to use for excited spectrum reconstruction
 
-           'pulse_len'     : 0.100,       #UV pulse lenght in ps, for excited_frac convolution. Use None for constant exct_frac
-           'exc_normalize' : False,        #Set to True to renormalize the excited spectrum by 1/exct_frac
-           'min_frac'      : 0.05,        #Ignore bins where the excited fraction is less than setpoint
+           'pulse_len'     : 0.08,        #UV pulse lenght in ps (FHWM), for excited_frac convolution. Use None for constant exct_frac
+           'exc_normalize' : False,       #Set to True to renormalize the excited spectrum by 1/exct_frac
+           'min_frac'      : 0.01,        #Ignore bins where the excited fraction is less than setpoint
 
            'delayOffset' : -0.04,         #Additional shift to time zero for plotting
            'plots' : {
@@ -227,7 +227,9 @@ if cfg.delayOffset:
     delays -= cfg.delayOffset
 
 if cfg.pulse_len:
-    f = cfg.exc_frac * 0.5*(special.erf( delays / cfg.pulse_len )+1)
+    sigma = cfg.pulse_len/2.355 #FHWM to sigma
+    erf_len = sigma*1.4142      #error function rescaling factor (gaussian is defined with a 1/2 in exponent)
+    f = cfg.exc_frac * 0.5*( special.erf( delays / erf_len ) + 1 )
 else:
     f = np.ones(exAcc.shape[0])*cfg.exc_frac
 
