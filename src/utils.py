@@ -200,7 +200,7 @@ def gmdCorrect(tofTrace, gmd):
     '''
     Normalizes traces on gmd
     '''
-    tof = cp.array(tofTrace.to_numpy())
+    tof = cp.array(tofTrace.to_numpy(), dtype=cp.float32)
 
     cuGmd = cp.array(gmd.reindex(tofTrace.index).to_numpy())
     tof /= cuGmd[:, None]

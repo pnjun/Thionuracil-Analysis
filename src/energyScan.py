@@ -16,35 +16,37 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'second_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'energyScan_2s_secondBlock_noJac'
+                          'fname'    : 'energyScan_2s_9-11_GMD_TOF_GMDBOUND_OPIS'
+                          #'fname'    : 'energyScan_2p_thirdBlock49_UNDUL_noGMD'
                         },
-           'time'     : { 'start' : datetime(2019,3,30,20,16,0).timestamp(),
-                          'stop'  : datetime(2019,3,31,14,00,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,30,21,57,0).timestamp(),
+                          'stop'  : datetime(2019,3,31,1,4,0).timestamp(),
+
                           #'start' : datetime(2019,4,5,17,26,0).timestamp(),
-                          #'stop'  : datetime(2019,4,6,5,13,0).timestamp(),
+                          #'stop'  : datetime(2019,4,5,18,56,0).timestamp(),
                         },
-           'filters'  : { 'retarder'    : (-15,5),
-                          'waveplate'   : (9,16),
+           'filters'  : { 'retarder'    : (-2,2), #(-7,-3), (-2,2)
+                          'waveplate'   : (5,16),
                           #'delay'      : (1255.0, 1255.5),
-                          'undulatorEV': (205,240)
+                          'undulatorEV': (203,245), #(150,180) (205,240)
                         },
-           'sdfilter' : "GMD > 2.5", # filter for shotsdata parameters used in query method
+           'sdfilter' : "GMD > 2.5 & GMD < 7.5", # filter for shotsdata parameters used in query method
 
            'ioChunkSize' : 50000,
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
-           'gmdNormalize': False,
+           'gmdNormalize': True,
+           'OPISbins'    : True,  #Use opis for energy bins labels
 
+           'onlyOdd'     : False,   #Set to true if ony odd shots should be used, otherwise all shots are used
+           'difference'  : False,  #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
+           'timeZero'    : 1257.2, #Used to correct delays
 
-           'onlyOdd'     : True, #Set to true if ony odd shots should be used, otherwise all shots are used
-           'difference'  : False, #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
-           'timeZero'    : 1257.2,   #Used to correct delays
-
-           'normAndJac'  : 150, #Set to true to use normalize traces on data over this many evs and apply Jacobian Correction
+           'Jacobian'    : True,   # apply Jacobian Correction
+           'NormROI'     : None,   # Range over which to normalize the traces
            'plots' : {
-                       'energy2d'      : (20, 250),
-                       'ROIIntegral'   : (20, 85),
+                       'energy2d'      : (30, 250),
+                       'ROIIntegral'   : (30, 250),
                        'plotSlice'     : [3,-1],
-                            'Katritzky': False,
                        'uvtext'        : ""#"(P pol, High Uv, 2ps delay)"
 
            },
@@ -93,12 +95,23 @@ if not cfg.onlyplot:
     #Remove pulses with no corresponing shots
     pulses = pulses.drop( pulses.index.difference(shotsData.index.levels[0]) )
 
+    #Bin data
+    if cfg.OPISbins:
+        #Get rid of pulses where OPIS was not working
+        pulses = pulses.query( '(undulatorEV - opisEV < 6) and (undulatorEV - opisEV > -6)' )
+        bins = pulses.groupby( 'undulatorEV' )
+        energy = np.array( [group.opisEV.mean() for _, group in bins] )
+    else:
+        bins = pulses.groupby( 'undulatorEV' )
+        energy = np.array( [name for name, _ in bins] )
+
+    #pulses.plot(kind='scatter', x='undulatorEV', y='opisEV') #The corresponding show is done later by plotParams
+    #plt.show()
+
     #Plot relevant parameters
     utils.plotParams(shotsData)
     gmdData = shotsData.GMD
 
-    #Bin data
-    bins = pulses.groupby( 'undulatorEV' )
     #Read in TOF data
     shotsTof  = utils.h5load('shotsTof', tr, pulses, chunk=cfg.ioChunkSize)
 
@@ -131,42 +144,37 @@ if not cfg.onlyplot:
 
     idx.close()
     tr.close()
-
+    print()
     traceAcc /= binCount[:,None]
 
-    #get axis labels
-    energy = np.array( [name for name, _ in bins] )
-
     evConv = utils.mainTofEvConv(pulses.retarder.mean())
-    evs = evConv(chunk.columns)
+    evs  = evConv(chunk.columns)
+    tofs = np.array(chunk.columns.to_numpy())
 
     # make dataframe and save data
     if cfg.writeOutput:
         np.savez(cfg.output.path + cfg.output.fname,
-                 traceAcc = traceAcc, energy = energy, evs=evs)
+                 traceAcc = traceAcc, energy = energy, evs=evs, tofs=tofs)
 
 if cfg.onlyplot:
     print("Reading data...")
-    dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
+    dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz", allow_pickle=True)
     traceAcc = dataZ['traceAcc']
     energy   = dataZ['energy']
     evs      = dataZ['evs']
+    try:
+        tofs     = dataZ['tofs']
+    except KeyError:
+        pass
 
-'''
-if '_noJacobian' in cfg.output.fname:
-    print('correcting jacobian')
-    traceAcc   = utils.jacobianCorrect(traceAcc, evs)
-    np.savez(cfg.output.path + cfg.output.fname[:-11],
-                 traceAcc = traceAcc, evs=evs, energy = energy)
-'''
+traceAcc -= traceAcc.min(axis=1)[:,None]
+if cfg.Jacobian:
+    traceAcc = utils.jacobianCorrect(traceAcc, evs)
 
-if cfg.normAndJac:
-    traceAcc -= traceAcc.min(axis=1)[:,None]
-
-    NormROI   = slice( None , np.abs(evs - cfg.normAndJac).argmin() )
+if cfg.NormROI:
+    NormROI   = slice( np.abs(evs - cfg.NormROI[1]).argmin() , np.abs(evs - cfg.NormROI[0]).argmin() )
     traceAcc /= traceAcc[:,NormROI].mean(axis=1)[:,None]
 
-    traceAcc = utils.jacobianCorrect(traceAcc, evs)
 
 if cfg.plots.plotSlice:
     ROI = slice(np.abs(evs - cfg.plots.energy2d[1]).argmin() ,
@@ -174,11 +182,6 @@ if cfg.plots.plotSlice:
     f = plt.figure(figsize=(9, 3))
 
     plt.plot(evs[ROI], traceAcc[cfg.plots.plotSlice[0],ROI], label=f'{energy[cfg.plots.plotSlice[0]]:.2f} eV')
-    if cfg.plots.Katritzky:
-        kData = np.loadtxt('Katritzky_1990.csv', delimiter=',')
-        plt.plot(kData[:,0]+(energy[cfg.plots.plotSlice[0]]-21.21),kData[:,1]*30)
-
-
     plt.plot(evs[ROI], traceAcc[cfg.plots.plotSlice[1],ROI], label=f'{energy[cfg.plots.plotSlice[1]]:.2f} eV')
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel(f"Intensity [a.u.]")
@@ -223,10 +226,10 @@ if cfg.plots.energy2d:
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
                        cmap='bwr', vmax=cmax, vmin=-cmax)
     else:
-        #cmax = np.percentile(np.abs(traceAcc[:,ROI]),99)
-        #cmin = np.percentile(np.abs(traceAcc[:,ROI]),1)
+        cmax = np.percentile(np.abs(traceAcc[:,ROI]),98)
+        cmin = np.percentile(np.abs(traceAcc[:,ROI]),30)
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
-                        cmap='bone_r')#, vmax=cmax, vmin=cmin)
+                        cmap='bone_r', vmax=cmax, vmin=cmin)
 
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Photon energy (eV)")

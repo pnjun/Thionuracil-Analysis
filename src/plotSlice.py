@@ -9,10 +9,12 @@ import utils
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'fisrt_block.h5'
+                          'trace'    : 'third_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,26,18,29,10).timestamp(),
-                          'stop'  : datetime(2019,3,26,18,36,59).timestamp(),
+           'time'     : { #'start' : datetime(2019,3,25,13,24,10).timestamp(),
+                          #'stop'  : datetime(2019,3,25,13,29,59).timestamp(),
+                          'start' : datetime(2019,4,5,17,30,0).timestamp(),
+                          'stop'  : datetime(2019,4,5,17,35,0).timestamp(),
                         },
            'plotFraction' : False
       }
@@ -33,7 +35,7 @@ tr.close()
 retarder = pulse.retarder.mean()
 maxEv    = pulse.undulatorEV.mean()
 opisEv   = pulse.opisEV.mean()
-print(f"avg ret {retarder:.2f} | avg delay {pulse.delay.mean():.2f} | avg undulator {maxEv:.2f} \navg GMD {gmd.mean():.2f} | avg OPIS {opisEv:.2f}")
+print(f"avg ret {retarder:.2f} | avg delay {pulse.delay.mean():.2f} | avg undulator {maxEv:.2f} \navg GMD {gmd.mean():.2f} uJ | avg OPIS {opisEv:.2f}")
 
 
 evConv = utils.mainTofEvConv(retarder)
@@ -53,7 +55,7 @@ ax = plt.gca()
 ax.set_ylabel('Intensity [au]')
 ax.set_xlabel('Kinetic Energy [eV]')
 plt.plot(evs, odd,  label='unpumped')
-plt.plot(evs, even, label='UV pumped')
+#plt.plot(evs, even, label='UV pumped')
 
 #plt.legend()
 plt.gca().set_xlim([-retarder-10, maxEv+20])

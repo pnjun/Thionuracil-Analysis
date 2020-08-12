@@ -63,7 +63,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                        'delay2d'        : False,
                        'photoShift'     : False,
                        'auger2d'        : True,        #None, "STANDARD" or "CONTOUR"
-                          'augerIntensity' : True,     #Only used when auger 2d is true
+                          'augerIntensity' : False,     #Only used when auger 2d is true
                        'augerZeroX'     : True,
                        'timeZero'       : False#(130,140)
            },
@@ -420,6 +420,8 @@ if cfg.plots.auger2d:
     else:
         plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
                    cmap='bwr', vmax=cmax, vmin=-cmax)
+
+    plt.colorbar()
 
     plt.xlabel("Kinetic energy [eV]")
     plt.ylabel("Delay [ps]")
