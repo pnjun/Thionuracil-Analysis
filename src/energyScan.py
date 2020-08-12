@@ -35,7 +35,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'ioChunkSize' : 50000,
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
            'gmdNormalize': True,
-           'OPISbins'    : True,  #Use opis for energy bins labels
+           'OPISbins'    : True,    #Use opis for energy bins labels
 
            'onlyOdd'     : False,   #Set to true if ony odd shots should be used, otherwise all shots are used
            'difference'  : False,  #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
@@ -44,9 +44,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'Jacobian'    : True,   # apply Jacobian Correction
            'NormROI'     : None,   # Range over which to normalize the traces
            'plots' : {
-                       'energy2d'      : (30, 250),
-                       'ROIIntegral'   : (30, 250),
-                       'plotSlice'     : [3,-1],
+                       'energy2d'      : (20, 250),
+                          'inset'      : ((30,70),(219,232)), #Extent of zoomed in inset (ekin, ephoton). None for no inset
+                       'ROIIntegral'   : (30, 81),
+                       'plotSlice'     : [1,-1],
                        'uvtext'        : ""#"(P pol, High Uv, 2ps delay)"
 
            },
@@ -99,6 +100,8 @@ if not cfg.onlyplot:
     if cfg.OPISbins:
         #Get rid of pulses where OPIS was not working
         pulses = pulses.query( '(undulatorEV - opisEV < 6) and (undulatorEV - opisEV > -6)' )
+
+       	#bins = pulses.groupby( pd.qcut( pulses.opisEV, cfg.OPISbins ) )
         bins = pulses.groupby( 'undulatorEV' )
         energy = np.array( [group.opisEV.mean() for _, group in bins] )
     else:
@@ -226,10 +229,32 @@ if cfg.plots.energy2d:
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
                        cmap='bwr', vmax=cmax, vmin=-cmax)
     else:
-        cmax = np.percentile(np.abs(traceAcc[:,ROI]),98)
-        cmin = np.percentile(np.abs(traceAcc[:,ROI]),30)
+        cmax = np.percentile(np.abs(traceAcc[:,ROI]),99)
+        cmin = np.percentile(np.abs(traceAcc[:,ROI]),1)
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
                         cmap='bone_r', vmax=cmax, vmin=cmin)
+
+        if cfg.plots.inset:
+            #padding and x start position of inset relative to main axes
+            INS_PAD = 0.04
+            INS_START = 0.6
+            x1, x2 = cfg.plots.inset[0]
+            y1, y2 = cfg.plots.inset[1]
+            #aspet ratio of inset. Used to calculate inset height
+            aspect_ratio = ( (y2-y1) / (yenergy[-1] - yenergy[0] ) ) / ( (x2-x1) / (evs[ROI][0] - evs[ROI][-1]) )
+            ins_width = 1 - INS_START - INS_PAD
+            ax = plt.gca()
+            axins = ax.inset_axes([INS_START, (1-INS_PAD) - ins_width*aspect_ratio, ins_width, ins_width*aspect_ratio])
+
+            cmax = np.percentile(np.abs(traceAcc[:,ROI]),95.5)
+            cmin = np.percentile(np.abs(traceAcc[:,ROI]),50)
+            axins.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
+                            cmap='bone_r', vmax=cmax, vmin=cmin)
+
+            # sub region of the original image
+            axins.set_xlim(x1, x2)
+            axins.set_ylim(y1, y2)
+            ax.indicate_inset_zoom(axins)
 
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel("Photon energy (eV)")
