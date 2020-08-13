@@ -45,9 +45,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'NormROI'     : None,   # Range over which to normalize the traces
            'plots' : {
                        'energy2d'      : (20, 250),
-                          'inset'      : ((30,70),(219,232)), #Extent of zoomed in inset (ekin, ephoton). None for no inset
+                            'inset2d'  : ((30,70),(219,232)), #Extent of zoomed in inset (ekin, ephoton). None for no inset
                        'ROIIntegral'   : (30, 81),
                        'plotSlice'     : [1,-1],
+                            'insetSl'  : ((160,245),(-0.5,1.6)),
                        'uvtext'        : ""#"(P pol, High Uv, 2ps delay)"
 
            },
@@ -188,8 +189,34 @@ if cfg.plots.plotSlice:
     plt.plot(evs[ROI], traceAcc[cfg.plots.plotSlice[1],ROI], label=f'{energy[cfg.plots.plotSlice[1]]:.2f} eV')
     plt.xlabel("Kinetic energy (eV)")
     plt.ylabel(f"Intensity [a.u.]")
-    f.subplots_adjust(left=0.08, bottom=0.15, right=0.96, top=0.95)
+    f.subplots_adjust(left=0.08, bottom=0.17, right=0.96, top=0.95)
     plt.legend()
+
+    if cfg.plots.insetSl:
+        #padding and x start position of inset relative to main axes
+        INS_YSTART = 0.4
+        INS_XSTART = 0.4
+
+        ax = plt.gca()
+        x1, x2 = cfg.plots.insetSl[0]
+        y1, y2 = cfg.plots.insetSl[1]
+        ymin, ymax = ax.get_ylim()
+        #aspet ratio of inset. Used to calculate inset height
+        aspect_ratio = ( (y2-y1) / (ymax - ymin) ) / ( (x2-x1) / (evs[ROI][0] - evs[ROI][-1]) )
+        ins_width = 0.97 - INS_XSTART
+
+        axins = ax.inset_axes([INS_XSTART, INS_YSTART, ins_width, ins_width*aspect_ratio*3.22])
+
+        cmax = np.percentile(np.abs(traceAcc[:,ROI]),95.5)
+        cmin = np.percentile(np.abs(traceAcc[:,ROI]),50)
+        axins.plot(evs[ROI], traceAcc[cfg.plots.plotSlice[0],ROI])
+        axins.plot(evs[ROI], traceAcc[cfg.plots.plotSlice[1],ROI])
+
+        # sub region of the original image
+        axins.set_xlim(x1, x2)
+        axins.set_ylim(y1, y2)
+        ax.indicate_inset_zoom(axins)
+
 
 #plot resulting image
 if cfg.plots.energy2d:
@@ -234,12 +261,12 @@ if cfg.plots.energy2d:
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
                         cmap='bone_r', vmax=cmax, vmin=cmin)
 
-        if cfg.plots.inset:
+        if cfg.plots.inset2d:
             #padding and x start position of inset relative to main axes
             INS_PAD = 0.04
             INS_START = 0.6
-            x1, x2 = cfg.plots.inset[0]
-            y1, y2 = cfg.plots.inset[1]
+            x1, x2 = cfg.plots.inset2d[0]
+            y1, y2 = cfg.plots.inset2d[1]
             #aspet ratio of inset. Used to calculate inset height
             aspect_ratio = ( (y2-y1) / (yenergy[-1] - yenergy[0] ) ) / ( (x2-x1) / (evs[ROI][0] - evs[ROI][-1]) )
             ins_width = 1 - INS_START - INS_PAD

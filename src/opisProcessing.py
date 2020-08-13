@@ -35,10 +35,10 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                           # List of files to process. All files must have the same number of shots per macrobunch
                         },
            'output'   : {
-                          'folder' : '/media/Fast2/ThioUr/processed/',
-                          'fname'  :  'trOpistest2019-03-30T1900.h5',
-                          'start' : datetime(2019,3,30,20,34,1).timestamp(),
-                          'stop'  : datetime(2019,3,30,20,39,0).timestamp(),
+                          'folder' : '/media/Fast1/',
+                          'fname'  :  'second_block_copy.h5',
+                          'start' : datetime(2019,3,30,20,16,0).timestamp(),
+                          'stop'  : datetime(2019,3,31,3,48,0).timestamp(),
                         },
            'hdf'      : { 'opisTr0'    : PREFIX + 'Raw data/CH00',
                           'opisTr1'    : PREFIX + 'Raw data/CH01',
@@ -71,7 +71,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                           'window'   : 1700, 'skipNum'  : 250,
                           'dt'       : 0.00014, 'shotsNum' : 49,
                         },
-           'chunkSize': 2400, #How many macrobunches to read/write at a time. Increasing increases RAM usage
+           'chunkSize': 1200, #How many macrobunches to read/write at a time. Increasing increases RAM usage
 
            'ampliRange': np.linspace(5, 80, 12),
            'enerRange' : np.linspace(-3, 7, 32)
@@ -181,6 +181,8 @@ for fname in flist:
                     for evGuess in evGuesses:
                         pulseIds = pulses[sl].query('undulEV == @evGuess').index
                         newTraces = [tr.query('pulseId in @pulseIds') for tr in traces]
+                        if newTraces[0].shape[0] == 0:
+                            continue
                         fitted = fitTraces(newTraces, evGuess)
                         fout.append('opisFit', fitted)
                 else:
