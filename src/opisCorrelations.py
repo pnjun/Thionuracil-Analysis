@@ -11,15 +11,15 @@ import utils
 
 import pickle
 
-cfg = { 'data' : { 'path'     : '/media/Fast2/ThioUr/processed/',
-                   'filename' : 'trOpistest2019-03-30T1900.h5',
-                   'indexf'   : 'idOpistest2019-03-30T1900.h5'
+cfg = { 'data' : { 'path'     : '/media/Fast1/',
+                   'filename' : 'second_block_copy.h5',
+                   'indexf'   : 'index.h5'
                  },
-        'time' : { 'start' : datetime(2019,3,30,20,36,2).timestamp(),
-                   'stop'  : datetime(2019,3,30,20,36,58).timestamp(),
+        'time' : { 'start' : datetime(2019,3,31,1,45,2).timestamp(),
+                   'stop'  : datetime(2019,3,31,1,55,58).timestamp(),
                  },
 
-        'averageShots'  : True,
+        'averageShots'  : False,
 
         'ignoreMask'    : True,
         'photoline'     : 171,
@@ -30,7 +30,7 @@ cfg = { 'data' : { 'path'     : '/media/Fast2/ThioUr/processed/',
         'plots':
                  {
                     'tracePlot'     : None,
-                    'ampliGMDsc'    : None,
+                    'ampliGMDsc'    : True,
                     'evPhotosc'     : True,
                     'evPhotoShotbyShot' : True,
                     'traceMax'      : None
