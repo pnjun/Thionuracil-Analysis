@@ -13,47 +13,47 @@ import pickle
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'second_block.h5'
+                          'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'energyScan_2s_9-11_GMD_TOF_GMDBOUND_OPIS'
-                          #'fname'    : 'energyScan_2p_thirdBlock49_UNDUL_noGMD'
+                          'fname'    : 'energyScan_2p_thirdblock_50-51_diff_opis'
                         },
-           'time'     : { 'start' : datetime(2019,3,30,21,57,0).timestamp(),
-                          'stop'  : datetime(2019,3,31,1,4,0).timestamp(),
+           'time'     : { #'start' : datetime(2019,3,30,21,57,0).timestamp(),
+                          #'stop'  : datetime(2019,3,31,1,4,0).timestamp(),
 
                           #'start' : datetime(2019,4,5,17,26,0).timestamp(),
                           #'stop'  : datetime(2019,4,5,18,56,0).timestamp(),
+
+                          'start' : datetime(2019,4,5,18,59,0).timestamp(),
+                          'stop'  : datetime(2019,4,5,20,32,0).timestamp(),
                         },
-           'filters'  : { 'retarder'    : (-2,2), #(-7,-3), (-2,2)
-                          'waveplate'   : (5,16),
-                          #'delay'      : (1255.0, 1255.5),
-                          'undulatorEV': (203,245), #(150,180) (205,240)
+           'filters'  : { 'retarder'    : (-10,0), #(-7,-3), (-2,2)
+                          'waveplate'   : (10,15),
+                          'delay'       : (1259.5, 1260),
+                          'undulatorEV' : (150,180),#(203,245),(150,180)
                         },
-           'sdfilter' : "GMD > 2.5 & GMD < 7.5", # filter for shotsdata parameters used in query method
+           'sdfilter' : "GMD > 0.5", # filter for shotsdata parameters used in query method
 
            'ioChunkSize' : 50000,
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
            'gmdNormalize': True,
-           'OPISbins'    : True,    #Use opis for energy bins labels
+           'OPISbins'    : False,    #Use opis for energy bins labels
 
            'onlyOdd'     : False,   #Set to true if ony odd shots should be used, otherwise all shots are used
-           'difference'  : False,  #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
-           'timeZero'    : 1257.2, #Used to correct delays
+           'difference'  : True,  #Set to true if a even-odd difference spectrum shuold be calculated instead (onlyodd is ignored in this case)
+           'timeZero'    : 1261.7, #Used to correct delays
 
-           'Jacobian'    : True,   # apply Jacobian Correction
-           'NormROI'     : None,   # Range over which to normalize the traces
            'plots' : {
-                       'energy2d'      : (20, 250),
-                            'inset2d'  : ((30,70),(219,232)), #Extent of zoomed in inset (ekin, ephoton). None for no inset
-                       'ROIIntegral'   : (30, 81),
+                       'energy2d'      : (33, 250),
+                            'inset2d'  : None,#((30,70),(219,232)), #Extent of zoomed in inset (ekin, ephoton). None for no inset
+                       'ROIIntegral'   : None,#(30, 81),
                        'plotSlice'     : [1,-1],
-                            'insetSl'  : ((160,245),(-0.5,1.6)),
-                       'uvtext'        : ""#"(P pol, High Uv, 2ps delay)"
+                            'insetSl'  : None,#((160,245),(-0.5,1.6)),
+                       'uvtext'        : "(2p edge, S pol, Low Uv, 2 ps delay, opis energies)"
 
            },
-           'writeOutput' : True, #Set to true to write out data in csv
-           'onlyplot'    : True, #Set to true to load data form 'output' file and
+           'writeOutput' : True,  #Set to true to write out data in csv
+           'onlyplot'    : False, #Set to true to load data form 'output' file and
                                  #plot only.
 
       }
@@ -84,13 +84,12 @@ if not cfg.onlyplot:
         pulses = pulses.query('index % 10 == 0')
 
     shotsData = utils.h5load('shotsData', tr, pulses)
-    shotsData = shotsData.query(cfg.sdfilter)
     shotsCount = shotsData.shape[0]
     print(f"Loading {shotsData.shape[0]} shots")
 
     if cfg.difference:
-        #pulses.delay.hist()
-        #plt.show()
+        pulses.delay.hist()
+        plt.show()
         delayAvg = cfg.timeZero - pulses.delay.mean()
         print(f"Average Delay {delayAvg:.4}ps")
 
@@ -100,7 +99,9 @@ if not cfg.onlyplot:
     #Bin data
     if cfg.OPISbins:
         #Get rid of pulses where OPIS was not working
-        pulses = pulses.query( '(undulatorEV - opisEV < 6) and (undulatorEV - opisEV > -6)' )
+        pulses_num = pulses.shape[0]
+        pulses = pulses.query( '(undulatorEV - opisEV < 10) and (undulatorEV - opisEV > -10)' )
+        print( f"Dropping {(pulses_num - pulses.shape[0]) / pulses_num * 100:.1}% of pulses due to OPIS mismatch")
 
        	#bins = pulses.groupby( pd.qcut( pulses.opisEV, cfg.OPISbins ) )
         bins = pulses.groupby( 'undulatorEV' )
@@ -125,6 +126,7 @@ if not cfg.onlyplot:
 
     if cfg.onlyOdd and not cfg.difference:
         shotsData = shotsData.query('shotNum % 2 == 1')
+    shotsData = shotsData.query(cfg.sdfilter)
 
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
@@ -155,6 +157,12 @@ if not cfg.onlyplot:
     evs  = evConv(chunk.columns)
     tofs = np.array(chunk.columns.to_numpy())
 
+    #Offset Correction
+    ROI = slice( 0, np.abs(evs - 270).argmin() )
+    traceAcc -= traceAcc[:,ROI].mean(axis=1)[:,None]
+    #Jacobian
+    traceAcc = utils.jacobianCorrect(traceAcc, evs)
+
     # make dataframe and save data
     if cfg.writeOutput:
         np.savez(cfg.output.path + cfg.output.fname,
@@ -171,13 +179,8 @@ if cfg.onlyplot:
     except KeyError:
         pass
 
-traceAcc -= traceAcc.min(axis=1)[:,None]
-if cfg.Jacobian:
-    traceAcc = utils.jacobianCorrect(traceAcc, evs)
-
-if cfg.NormROI:
-    NormROI   = slice( np.abs(evs - cfg.NormROI[1]).argmin() , np.abs(evs - cfg.NormROI[0]).argmin() )
-    traceAcc /= traceAcc[:,NormROI].mean(axis=1)[:,None]
+if not cfg.difference:
+    print("***RE-EXPORT STATIC DATA WITH JACOBIAN AND SHIFT BUILT IN***")
 
 
 if cfg.plots.plotSlice:
@@ -252,7 +255,7 @@ if cfg.plots.energy2d:
 
     if cfg.difference:
         plt.suptitle(f"Kinetic Energy vs Photon Energy {cfg.plots.uvtext}")
-        cmax = np.percentile(np.abs(traceAcc),99.5)
+        cmax = np.percentile(np.abs(traceAcc[:,ROI]),99)
         plt.pcolormesh(evs[ROI], yenergy, traceAcc[:,ROI],
                        cmap='bwr', vmax=cmax, vmin=-cmax)
     else:
