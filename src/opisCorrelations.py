@@ -15,11 +15,11 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/',
                    'filename' : 'second_block_copy.h5',
                    'indexf'   : 'index.h5'
                  },
-        'time' : { 'start' : datetime(2019,3,31,1,45,2).timestamp(),
-                   'stop'  : datetime(2019,3,31,1,55,58).timestamp(),
+        'time' : { 'start' : datetime(2019,3,30,23,5,0).timestamp(),
+                   'stop'  : datetime(2019,3,30,23,15,0).timestamp(),
                  },
 
-        'averageShots'  : False,
+        'averageShots'  : True,
 
         'ignoreMask'    : True,
         'photoline'     : 171,
@@ -30,7 +30,7 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/',
         'plots':
                  {
                     'tracePlot'     : None,
-                    'ampliGMDsc'    : True,
+                    'ampliGMDsc'    : False,
                     'evPhotosc'     : True,
                     'evPhotoShotbyShot' : True,
                     'traceMax'      : None

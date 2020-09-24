@@ -15,14 +15,14 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'trace'    : 'third_block.h5'
                         },
            'output'   : { 'path'     : './data/',
-                          'fname'    : 'TRNEXAFS_2p_Multip_sPol_NoGMD'
+                          'fname'    : 'MULTIPLOT_2s_pPol'
                         },
-           'time'     : { 'start' : datetime(2019,4,5,5,28,0).timestamp(),
-                          'stop'  : datetime(2019,4,6,13,28,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,4,5,1,50,0).timestamp(),
+                          'stop'  : datetime(2019,4,5,8,11,0).timestamp(),
                         },
-           'adHocFilter' : False, #A couple of ad-hoc filters
+           'adHocFilter' : True, #A couple of ad-hoc filters
            'sPolFilter'  : False,
-           'filters'  : { 'undulatorEV' : (160.,173),
+           'filters'  : { 'undulatorEV' : (215.,230),
                           'retarder'    : (-11,-9),
                           #'delay'       : (1170, 1185.0),
                           'waveplate'   : (12,14)
@@ -34,14 +34,14 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 6,      # Number if bis to use, only relevant when delayBin_mode is QUANTILE
            'ioChunkSize' : 50000,
-           'gmdNormalize': False,
+           'gmdNormalize': True,
            'useBAM'      : True,
-           'timeZero'    : 1261.7,     #Used to correct delays
+           'timeZero'    : 1260.3,     #Used to correct delays
 
            #either MULTIPLOT for one nexafs 2d plot per dealay
            #or INTEGRAL for one single 2dplot with integrated data over ROI
            'mode'        : 'MULTIPLOT',
-           'integROIeV'  : (100,180),
+           'integROIeV'  : (25,80),
            'decimate'    : False, #Decimate macrobunches before analizing. Use for quick evalutation of large datasets
 
            'plots' : {   'rescaleDiffs': False, #SET to reset the 0-difference point to the UV late signal average
@@ -193,7 +193,7 @@ if not cfg.onlyplot:
 
         #calculate difference spectra and integrate over ROITrue
         if cfg.mode == 'INTEGRAL':
-            pumpData, diffData = utils.getInteg(chunk, ROI, gmd = gmdData, getDiff = True)
+            pumpData, diffData = utils.getInteg(chunk, ROI, gmd = gmdData, getDiff = True, jacobian_evs=evs)
         else:
             diffData = utils.getDiff(chunk, gmd = gmdData)
 
@@ -221,7 +221,9 @@ if not cfg.onlyplot:
     tr.close()
 
     diffAcc /= binCount
-    #if uvOdd > uvEven: diffAcc *= -1
+
+    if cfg.mode == 'MULTIPLOT':
+        diffTrace = utils.jacobianCorrect(diffTrace, evs)
 
     if cfg.mode == 'INTEGRAL': pumpAcc /= binCount
 

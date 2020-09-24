@@ -63,7 +63,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
 
            'delayOffset' : -0.04,         #Additional shift to time zero for plotting
            'plots' : {
-                       'tracePlots'     : False,
+                       'tracePlots'     : True,
                        'delay2d'        : False,
                        'delay3d'        : False,#(110,160),   #'waterfall' 3d plot
                        'augerShift'     : True,        #Only works with exc_frac data
@@ -249,7 +249,7 @@ if cfg.min_frac:
 if cfg.plots.tracePlots:
     plt.figure(figsize=(9, 7))
     plt.plot(evs, gsAcc, label="Ground State")
-    plt.plot(evs, exAcc[-1], label="Excited State")
+    plt.plot(evs, exAcc[-1]/0.2, label=f"Excited State @{delays[-1]}fs")
     plt.legend()
 
 #plot resulting image
