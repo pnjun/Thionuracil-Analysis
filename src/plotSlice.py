@@ -9,13 +9,14 @@ import utils
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'third_block.h5'
+                          'trace'    : 'fisrt_block.h5'
                         },
-           'time'     : { #'start' : datetime(2019,3,25,13,24,10).timestamp(),
-                          #'stop'  : datetime(2019,3,25,13,29,59).timestamp(),
-                          'start' : datetime(2019,4,5,17,30,0).timestamp(),
-                          'stop'  : datetime(2019,4,5,17,35,0).timestamp(),
+           'time'     : { 'start' : datetime(2019,3,25,12,0,0).timestamp(),
+                          'stop'  : datetime(2019,3,25,12,0,1).timestamp(),
+                          #'start' : datetime(2019,4,5,17,30,0).timestamp(),
+                          #'stop'  : datetime(2019,4,5,17,35,0).timestamp(),
                         },
+           'singleShot'   : False,
            'plotFraction' : False
       }
 cfg = AttrDict(cfg)
@@ -28,6 +29,7 @@ pulse = idx.select('pulses', where='time >= cfg.time.start and time < cfg.time.s
 gmd   = utils.h5load('shotsData', tr, pulse).GMD
 data  = utils.h5load('shotsTof', tr, pulse)
 
+print(f'loading {pulse.shape[0]} pulses, {data.shape[0]} shots')
 
 idx.close()
 tr.close()
@@ -41,13 +43,20 @@ print(f"avg ret {retarder:.2f} | avg delay {pulse.delay.mean():.2f} | avg undula
 evConv = utils.mainTofEvConv(retarder)
 evs = evConv(data.columns)
 
+ROI = slice( np.abs(evs - 60).argmin(), np.abs(evs - 20).argmin() )
+data -= data.to_numpy()[:,ROI].mean(axis=1)[:,None]
+data *= -1
 data = utils.jacobianCorrect(data, evs)
 
-even = -data.query('shotNum % 2 == 0')
-odd  = -data.query('shotNum % 2 == 1')
+even = data.query('shotNum % 2 == 0')
+odd  = data.query('shotNum % 2 == 1')
 
-even = utils.traceAverage(even)
-odd =  utils.traceAverage(odd)
+if cfg.singleShot:
+    even = even.iloc[3]
+    odd =  odd.iloc[3]
+else:
+    even = utils.traceAverage(even)
+    odd =  utils.traceAverage(odd)
 
 plt.figure()
 #plt.suptitle("Static FEL only spectrum")
