@@ -9,10 +9,12 @@ import utils
 
 cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                           'index'    : 'index.h5',
-                          'trace'    : 'fisrt_block.h5'
+                          'trace'    : 'fisrt_block.h5' #'third_block.h5'
                         },
-           'time'     : { 'start' : datetime(2019,3,25,12,0,0).timestamp(),
-                          'stop'  : datetime(2019,3,25,12,0,1).timestamp(),
+           'time'     : { #'start' : datetime(2019,3,25,12,0,0).timestamp(),  # Krypton
+                          #'stop'  : datetime(2019,3,25,12,0,1).timestamp(),
+                          'start' : datetime(2019,3,26,17,30,0).timestamp(),
+                          'stop'  : datetime(2019,3,26,17,35,0).timestamp(),
                           #'start' : datetime(2019,4,5,17,30,0).timestamp(),
                           #'stop'  : datetime(2019,4,5,17,35,0).timestamp(),
                         },
@@ -43,8 +45,9 @@ print(f"avg ret {retarder:.2f} | avg delay {pulse.delay.mean():.2f} | avg undula
 evConv = utils.mainTofEvConv(retarder)
 evs = evConv(data.columns)
 
-ROI = slice( np.abs(evs - 60).argmin(), np.abs(evs - 20).argmin() )
-data -= data.to_numpy()[:,ROI].mean(axis=1)[:,None]
+#ROI = slice( np.abs(evs - 60).argmin(), np.abs(evs - 20).argmin() )
+#ROI = slice( 0, np.abs(evs - 270).argmin() )
+#data -= data.to_numpy()[:,ROI].mean(axis=1)[:,None]
 data *= -1
 data = utils.jacobianCorrect(data, evs)
 
@@ -67,7 +70,7 @@ plt.plot(evs, odd,  label='unpumped')
 #plt.plot(evs, even, label='UV pumped')
 
 #plt.legend()
-plt.gca().set_xlim([-retarder-10, maxEv+20])
+plt.gca().set_xlim([-retarder-15, maxEv+20])
 
 if cfg.plotFraction:
     from matplotlib.widgets import Slider
