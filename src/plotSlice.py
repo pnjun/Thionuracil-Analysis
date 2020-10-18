@@ -67,7 +67,7 @@ ax = plt.gca()
 ax.set_ylabel('Intensity [au]')
 ax.set_xlabel('Kinetic Energy [eV]')
 plt.plot(evs, odd,  label='unpumped')
-#plt.plot(evs, even, label='UV pumped')
+plt.plot(evs, even, label='UV pumped')
 
 #plt.legend()
 plt.gca().set_xlim([-retarder-15, maxEv+20])

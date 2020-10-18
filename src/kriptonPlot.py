@@ -145,6 +145,7 @@ colors = ['orange', 'red']
 for n, trace in enumerate(traceAcc):
     evConv = customEvConverter(retarder[n])
     evs  = evConv(tofs)
+
     ROI = slice(np.abs(evs - cfg.plotlims[1]).argmin() , np.abs(evs - cfg.plotlims[0]).argmin())
     trace = trace[ROI]
     evs = evs[ROI]

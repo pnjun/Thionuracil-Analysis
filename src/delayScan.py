@@ -28,7 +28,7 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                         },
            'output'   : { 'path'     : './data/',
                           #'fname'    : 'DelayScanZoom3_q22_270eV',
-                          'fname'    : 'DelayScanZoom2_q30_270eV'
+                          'fname'    : 'DelayScanZoom2_q30_270eV_pumpAcc'
                           #'fname'    : 'excFrac_test'
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
@@ -49,22 +49,22 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
            'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
-           'delayBinNum'    : 20,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
+           'delayBinNum'    : 30,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
 
            'gmdNormalize': True,
            'useBAM'      : True,
 
            'ioChunkSize' : 50000,
-           'bootstrap'   : None,  #Number of bootstrap samples to make for variance estimation. Use only for aaugerZeroX.
-                                  #Set to None for everything else
+
            'augerROI'    : (125,155),
            'delayOffset' : -0.04,  #Additional shift to time zero for plotting
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : True,        #None, "STANDARD" or "CONTOUR"
-                          'augerIntensity' : False,     #Only used when auger 2d is true
-                       'augerZeroX'     : True,
+                       'auger2d'        : True,      #None, "STANDARD" or "CONTOUR"
+                         'excited_frac' : 0.22,      #Only used when auger 2d is true,
+                       'augerZeroX'     : False,
+                         'CS_dynamics'  : True,
                        'timeZero'       : False#(130,140)
            },
 
@@ -169,50 +169,27 @@ if not cfg.onlyplot:
     #Read in TOF data and calulate difference, in chunks
     shotsTof  = utils.h5load('shotsTof', tr, pulses, chunk=cfg.ioChunkSize)
 
-    #Create empty ouptut image in diffAcc (difference accumulator)
-    #binCount counts how many shots go in each bin, to average them
-    if cfg.bootstrap:
-        #For each delaybin, we need to create cfg.bootstrap samples of it
-        #bsBin is a dictionary associating a list of bs samples to each
-        #delay bin key
-        bsBins = {}
-        for name, group in delayBins:
-            bsBins[name] = []
-            for n in range(cfg.bootstrap):
-                bsBins[name].append( group.sample(frac=1, replace=True).index )
-
-        #Output arrays have an extra dimension to index each bs sample
-        bsDiffAcc  = np.zeros(( cfg.bootstrap, len(delayBins), 3009 ))
-        bsBinCount = np.zeros(( cfg.bootstrap, len(delayBins) ))
-
     #Normally we just have a trace for each delay
     diffAcc  = np.zeros(( len(delayBins), 3009 ))
+    pumpAcc  = np.zeros(( len(delayBins), 3009 ))
     binCount = np.zeros(  len(delayBins) )
     tStart= time.time()
     #Iterate over data chunks and accumulate them in diffAcc
     for counter, chunk in enumerate(shotsTof):
         print( f"loading chunk {counter} of {shotsCount//cfg.ioChunkSize}", end='\r' )
-        shotsDiff = utils.getDiff(chunk, gmdData)
+        chunk = utils.gmdCorrect(chunk, gmdData)
+        shotsDiff = utils.getDiff(chunk)
 
         for binId, delayBin in enumerate(delayBins):
             delayName, group = delayBin
             group = group.query(cfg.sdfilter)
-            #print( f"{binId} | process mem  {process.memory_info().rss/1e6} Mb")
-            #If we are bootstrapping, we need to iterate over the bs samples as well
-            if cfg.bootstrap:
-                for bsBinId, bsGroupIdx in enumerate(bsBins[delayName]):
-                    try:
-                        bsBinTrace = shotsDiff.iloc[ shotsDiff.index.isin(bsGroupIdx) ]
-                        #bsBinTrace = shotsDiff.query('pulseId in @bsGroupIdx.get_level_values(0)')
-                        #bsBinTrace = shotsDiff.reindex(bsGroupIdx).dropna()
-                        bsDiffAcc[bsBinId, binId]  += -bsBinTrace.sum(axis=0)
-                        bsBinCount[bsBinId, binId] += bsBinTrace.shape[0]
-                    except KeyError:
-                        pass
 
             delayBinIdx   = group.index.intersection(shotsDiff.index)
             delayBinTrace = shotsDiff.reindex(delayBinIdx)
-            diffAcc[binId]  += -delayBinTrace.sum(axis=0)
+            pumpBinTrace  = chunk.reindex(delayBinIdx)
+
+            diffAcc[binId]  += -utils.traceAverage(delayBinTrace, accumulate=True)
+            pumpAcc[binId]  += -utils.traceAverage(pumpBinTrace, accumulate=True)
             binCount[binId] += delayBinTrace.shape[0]
 
     print(f"Binning took {time.time()-tStart} s to run")
@@ -227,32 +204,15 @@ if not cfg.onlyplot:
     evConv = utils.mainTofEvConv(pulses.retarder.mean())
     evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
 
-    if cfg.bootstrap:
-        bsDiffAcc /= bsBinCount[:,:,None]
     diffAcc /= binCount[:,None]
-
+    pumpAcc /= binCount[:,None]
     diffAcc = utils.jacobianCorrect(diffAcc, evs)
+    pumpAcc = utils.jacobianCorrect(pumpAcc, evs)
 
     # make dataframe and save data
     if cfg.writeOutput:
-        if cfg.bootstrap:
-            #If a file with same name already exists, append the new bs samples to it without overwriting
-            #This sidesteps the limit on bs samples we can run in one go due to the memory leak in pd.index.isin
-            #and allows us to split the calculation in multiple batches.
-            #Warning, appendind only makes sense if the time frames and binning parameters are the same
-            #for each run!!
-            try:
-                dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
-                oldBs = dataZ['bsDiffAcc']
-                bsDiffAcc = np.vstack((bsDiffAcc, oldBs))
-            except (FileNotFoundError, KeyError):
-                pass
-
-            np.savez(cfg.output.path + cfg.output.fname,
-                     diffAcc = diffAcc, bsDiffAcc=bsDiffAcc, evs=evs, delays=delays)
-        else:
-            np.savez(cfg.output.path + cfg.output.fname,
-                     diffAcc = diffAcc, evs=evs, delays=delays)
+        np.savez(cfg.output.path + cfg.output.fname,
+                 diffAcc = diffAcc, pumpAcc=pumpAcc, evs=evs, delays=delays)
 
 if cfg.onlyplot:
     dataZ = np.load(cfg.output.path + cfg.output.fname + ".npz")
@@ -261,7 +221,7 @@ if cfg.onlyplot:
     evs    = dataZ['evs']
 
     try:
-        bsDiffAcc = dataZ['bsDiffAcc']
+        pumpAcc = dataZ['pumpAcc']
     except KeyError:
         pass
 
@@ -327,29 +287,31 @@ if cfg.plots.augerZeroX:
 
     zeroX, avgCenter, posCenter, negCenter, avgDiff = getZeroCrossing(diffAcc)
 
-    f= plt.figure(figsize=(9, 7))
-    gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
+    f = plt.figure(figsize=(6, 7))
 
-    ax1 = f.add_subplot(gs[1])
-    plt.text(0.97, 0.85, 'b)', transform=ax1.transAxes)
-    plt.xlabel("delay [ps]")
-    plt.ylabel("Diff. signal intensity [au]")
+    if cfg.plots.CS_dynamics:
+        gs = gridspec.GridSpec(3, 1, height_ratios=[3, 1, 1])
+        ax3 = f.add_subplot(gs[2])
+        from Mai_2TU_bondlenghts import getCoulomb
+        time, coul = getCoulomb()
+        plt.plot(time/1000, -coul)
+        plt.text(0.95, 0.80, 'c)', transform=ax3.transAxes)
+        plt.xlabel("delay [ps]")
+        plt.ylabel("CS Coulomb\nenergy")
+    else:
+        gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
+
+    ax1 = f.add_subplot(gs[1], sharex=ax3)
+    plt.text(0.95, 0.80, 'b)', transform=ax1.transAxes)
+
+    plt.ylabel("Diff. signal\nintensity [au]")
     plt.plot(delays, avgDiff)
-
-    '''def stepCorr(a):
-        cuma = np.cumsum(a)
-        suma = np.sum(a)
-        return suma - cuma
-
-    xcorr = stepCorr(avgDiff - avgDiff.mean())
-    plt.plot(delays,xcorr)'''
 
     startIdx = np.abs(avgDiff - 3).argmin()
 
     ax1 = f.add_subplot(gs[0], sharex=ax1)
-    plt.text(0.97, 0.95, 'a)', transform=ax1.transAxes)
+    plt.text(0.95, 0.92, 'a)', transform=ax1.transAxes)
     ax1.xaxis.set_minor_locator(tck.AutoMinorLocator())
-    plt.xlabel("delay [ps]")
     plt.ylabel("Kinetic energy [eV]")
     plt.plot(delays[startIdx:], zeroX[startIdx:], '+', label='zero crossing', color='C0')
     plt.plot(delays[startIdx:], avgCenter[startIdx:], 'x', label='differential signal centroid', color='C3')
@@ -362,69 +324,74 @@ if cfg.plots.augerZeroX:
     #plt.plot(delays[startIdx+1:-1], movAvg(posCenter[startIdx:],3), '-', color='C1')
     #plt.plot(delays[startIdx+1:-1], movAvg(negCenter[startIdx:],3), '-', color='C2')
 
-    #If bootstrap data is present, use to to estimate errorbars
-    try:
-        raise NameError
-        #avgCenter for bootstrap samples
-        results = [ getZeroCrossing(sample) for sample in bsDiffAcc]
-        print(f"{len(results)} bootstrap samples found, plotting errorbars")
-        zeroXs  = np.array([ res[0] for res in results]).T
-        centers = np.array([ res[1] for res in results]).T
-
-        bsXVar = zeroXs.var(axis=1)  #Variance of bootstrap samples
-        bsCVar = centers.var(axis=1)
-        #bcCMea = centers.mean(axis=1)
-        #plt.plot(delays, bcCMea, label='center ADSF', color='C7')
-        print(f"Total bs variance {bsCVar.sum():.1f}  {bsXVar.sum():.1f}")
-
-        plt.fill_between(delays, zeroX-bsXVar,     zeroX+bsXVar,     facecolor='C0', alpha=0.15)
-        plt.fill_between(delays, avgCenter-bsCVar, avgCenter+bsCVar, facecolor='C3', alpha=0.15)
-        plt.gca().set_ylim([136,142])
-        #plt.gca().set_xlim([-0.4,3.2])
-    except NameError:
-        pass
-
+    f.subplots_adjust(left=0.17, bottom=0.1, right=0.97, top=0.96, wspace=0.8, hspace=None)
     plt.legend()
 
 if cfg.plots.auger2d:
     ROI = slice(np.abs(evs - cfg.augerROI[1]).argmin() , np.abs(evs - cfg.augerROI[0]).argmin())
 
-    f = plt.figure(figsize=(11, 7))
-    if cfg.plots.augerIntensity:
-        gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1])
+    f = plt.figure(figsize=(6, 6))
+    if cfg.plots.excited_frac:
+        gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
         ax1 = f.add_subplot(gs[1])
-        plt.text(0.1, 0.95, 'b)', transform=ax1.transAxes)
+        plt.text(0.03, 0.8, 'b)', transform=ax1.transAxes)
 
-        #Normalize and shift intensity
-        integ = diffAcc[:,ROI].sum(axis=1)
-        integ -= integ[:2].mean()
-        #integ /= np.linalg.norm(integ)
+        # plt.setp(ax1.get_yticklabels(), visible=False)
+        #plt.tick_params(axis='y', labelsize=0, length = 0)
 
-        plt.setp(ax1.get_yticklabels(), visible=False)
-        plt.tick_params(axis='y', labelsize=0, length = 0)
 
-        plt.plot(integ,delays, 'x', color='C0')
-        plt.plot(utils.movAvg(integ,3), delays[1:-1], '-', color='C0')
+        # uvOff1 = (pumpAcc[10:20,ROI] - diffAcc[10:20,ROI]).mean(axis=0)
+        # uvOff2 = (pumpAcc[:,ROI] - diffAcc[:,ROI]).mean(axis=0)
+        # uvOff3 = (pumpAcc[25:,ROI] - diffAcc[25:,ROI]).mean(axis=0)
+        #
+        # uvOn1  = pumpAcc[10:20,ROI].mean(axis=0)
+        # uvOn2  = pumpAcc[:,ROI].mean(axis=0)
+        # uvOn3  = pumpAcc[25:,ROI].mean(axis=0)
+        #
+        # exc_state1 = (uvOn1 - (1-cfg.plots.excited_frac)*uvOff1 ) / cfg.plots.excited_frac
+        # exc_state2 = (uvOn2 - (1-cfg.plots.excited_frac)*uvOff2 ) / cfg.plots.excited_frac
+        # exc_state3 = (uvOn3 - (1-cfg.plots.excited_frac)*uvOff3 ) / cfg.plots.excited_frac
+        #
+        # plt.plot(evs[ROI], uvOff1 , label=f'UV OFF {delays[10]:.1}-{delays[20]:.1} ')
+        # plt.plot(evs[ROI], uvOff2 , label='UV OFF')
+        # plt.plot(evs[ROI], uvOff3 , label='UV OFF')
+        # plt.plot(evs[ROI], uvOn1 , label=f'UV ON {delays[10]:.1}-{delays[20]:.1} ')
+        # plt.plot(evs[ROI], uvOn2 , label='UV ON')
+        # plt.plot(evs[ROI], uvOn3 , label='UV ON')
 
-        plt.xlabel(f"Integrated differential\nintensity[a.u.]")
-        f.add_subplot(gs[0], sharey=ax1)
-        f.subplots_adjust(left=0.08, bottom=0.1, right=0.96, top=0.95, wspace=None, hspace=0.03)
-        plt.text(0.05, 0.95, 'a)', transform=plt.gca().transAxes)
+        UVID = 13
+        uvOff = pumpAcc[UVID,ROI] - diffAcc[UVID,ROI]
+        uvOn  = pumpAcc[UVID,ROI]
+
+        #uvOff = (pumpAcc[:,ROI] - diffAcc[:,ROI]).mean(axis=0)
+        #uvOn  = pumpAcc[-1:,ROI].mean(axis=0)
+
+        exc_state = (uvOn - (1-cfg.plots.excited_frac)*uvOff ) / cfg.plots.excited_frac
+
+        plt.plot(evs[ROI], uvOff , label='Uv Off')
+        plt.plot(evs[ROI], exc_state , label=f'Exc State @ {delays[UVID]:.1} ps')
+
+        plt.legend()
+        plt.ylabel(f"Intensity[a.u.]")
+        f.add_subplot(gs[0], sharex=ax1)
+        plt.text(0.03, 0.90, 'a)', transform=plt.gca().transAxes)
 
     #plt.suptitle("Auger Kinetic Energy vs Delay. Photon Energy 270 eV ")
     cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
 
     if cfg.plots.auger2d == "CONTOUR":
-        plt.contourf(evs[ROI], delays, diffAcc[:,ROI],
+        im = plt.contourf(evs[ROI], delays, diffAcc[:,ROI],
                   cmap='bwr', vmax=cmax, vmin=-cmax, levels=100)
     else:
-        plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
-                   cmap='bwr', vmax=cmax, vmin=-cmax)
-
-    plt.colorbar()
+        im = plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
+                   cmap='bwr', vmax=cmax, vmin=-cmax, shading='nearest')
 
     plt.xlabel("Kinetic energy [eV]")
     plt.ylabel("Delay [ps]")
+
+    cbaxes = f.add_axes([0.1, 0.95, 0.86, 0.03])
+    plt.colorbar(cax=cbaxes, orientation="horizontal")
+    f.subplots_adjust(left=0.10, bottom=0.1, right=0.96, top=0.90, wspace=0.05, hspace=None)
 
 if cfg.plots.photoShift:
     # quick plots for check. for more detailed analysis use photolineAnalysis.py
