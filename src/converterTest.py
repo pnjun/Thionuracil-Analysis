@@ -4,12 +4,20 @@ import utils
 import numpy as np
 import matplotlib.pyplot as plt
 
-tofs = np.arange(0.1720, 1.6764, 0.0005)
+tofs = np.arange(0.25, 1.65, 0.0005)
 
-evConv = utils.mainTofEvConv(0)
-evs  = evConv(tofs)
+retarders = [0,20,40,60,80]
 
-plt.plot(tofs, evs)
+plt.rcParams.update({'font.size': 14})
+
+for ret in retarders:
+    evConv = utils.mainTofEvConv(-ret)
+    evs  = evConv(tofs)
+    plt.plot(tofs, evs, label=f"{ret} V")
+
+plt.gca().set_ylabel('Energy [eV]')
+plt.gca().set_xlabel('Time-of-flight [μs]')
+plt.legend()
 plt.show()
 
-np.savetxt('energyCal', np.array([tofs, evs]).T)
+#np.savetxt('energyCal', np.array([tofs, evs]).T)

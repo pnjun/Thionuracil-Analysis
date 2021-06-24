@@ -13,10 +13,10 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                         },
            'time'     : { #'start' : datetime(2019,3,25,12,0,0).timestamp(),  # Krypton
                           #'stop'  : datetime(2019,3,25,12,0,1).timestamp(),
+                          #'start' : datetime(2019,3,26,17,30,0).timestamp(),
+                          #'stop'  : datetime(2019,3,26,17,32,0).timestamp(),
                           'start' : datetime(2019,3,26,17,30,0).timestamp(),
                           'stop'  : datetime(2019,3,26,17,35,0).timestamp(),
-                          #'start' : datetime(2019,4,5,17,30,0).timestamp(),
-                          #'stop'  : datetime(2019,4,5,17,35,0).timestamp(),
                         },
            'singleShot'   : False,
            'plotFraction' : False
@@ -62,16 +62,19 @@ else:
     odd =  utils.traceAverage(odd)
 
 plt.figure()
-#plt.suptitle("Static FEL only spectrum")
+plt.rc('font', size=16)          # controls default text sizes
+plt.rc('xtick', labelsize=16)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=16)
+
 ax = plt.gca()
-ax.set_ylabel('Intensity [au]')
+ax.set_ylabel('Intensity [a.u.]')
 ax.set_xlabel('Kinetic Energy [eV]')
-plt.plot(evs, odd,  label='unpumped')
-plt.plot(evs, even, label='UV pumped')
+plt.plot(evs, odd,  label='unpumped', lw=2)
+#plt.plot(evs, even, label='UV pumped')
 
 #plt.legend()
-plt.gca().set_xlim([-retarder-15, maxEv+20])
 
+plt.gca().set_xlim([-retarder-15, maxEv+20])
 if cfg.plotFraction:
     from matplotlib.widgets import Slider
     f = plt.figure()

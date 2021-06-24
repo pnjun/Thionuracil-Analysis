@@ -28,8 +28,8 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
                         },
            'output'   : { 'path'     : './data/',
                           #'fname'    : 'DelayScanZoom3_q22_270eV',
-                          'fname'    : 'DelayScanZoom2_q30_270eV_pumpAcc'
-                          #'fname'    : 'excFrac_test'
+                          'fname'    : 'DelayScanZoom2_q30_270eV'
+                          #'fname'    : 'excFrac_test
                         },
            'time'     : { 'start' : datetime(2019,3,26,18,56,0).timestamp(), #18
                           'stop'  : datetime(2019,3,27,7,7,0).timestamp(),   #7
@@ -48,11 +48,11 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
 
            'sdfilter' : "GMD > 0.5 & BAM != 0", # filter for shotsdata parameters used in query method
            'delayBin_mode'  : 'QUANTILE', # Binning mode, must be one of CUSTOM, QUANTILE, CONSTANT
-           'delayBinStep'   : 0.2,     # Size of bins, only relevant when delayBin_mode is CONSTANT
+           'delayBinStep'   : 0.2,       # Size of bins, only relevant when delayBin_mode is CONSTANT
            'delayBinNum'    : 30,     # Number if bis to use, only relevant when delayBin_mode is QUANTILE
 
            'gmdNormalize': True,
-           'useBAM'      : True,
+           'useBAM'      : False,
 
            'ioChunkSize' : 50000,
 
@@ -61,11 +61,11 @@ cfg = {    'data'     : { 'path'     : '/media/Fast2/ThioUr/processed/',
            'plots' : {
                        'delay2d'        : False,
                        'photoShift'     : False,
-                       'auger2d'        : True,      #None, "STANDARD" or "CONTOUR"
-                         'excited_frac' : 0.22,      #Only used when auger 2d is true,
+                       'auger2d'        : False,      #None, "STANDARD" or "CONTOUR"
+                         'excited_frac' : 0.22,       #Only used when auger 2d is true,
                        'augerZeroX'     : False,
                          'CS_dynamics'  : True,
-                       'timeZero'       : False#(130,140)
+                       'timeZero'       : (90,110)
            },
 
            'writeOutput' : True, #Set to true to write out data in csv
@@ -147,7 +147,7 @@ if not cfg.onlyplot:
         interval = pd.IntervalIndex.from_arrays(utils.CUSTOM_BINS_LEFT - averageBamShift,
                                                 utils.CUSTOM_BINS_RIGHT - averageBamShift)
         delayBins = shotsData.groupby( pd.cut(shotsData.delay, interval) )
-
+        delays = np.array( [name.mid for name, _ in delayBins] )
     else:
     	#choose from a plot generated
         if cfg.interactive:
@@ -156,13 +156,17 @@ if not cfg.onlyplot:
             binStart, binEnd = cfg.timeBounds
         print(f"Binning interval {binStart} : {binEnd}")
 
-        #Bin data on delay
         if cfg.delayBin_mode == 'CONSTANT':
             delayBins = shotsData.groupby( pd.cut( shotsData.delay,
                                               np.arange(binStart, binEnd, cfg.delayBinStep) ) )
+            delays = np.array( [name.mid for name, _ in delayBins] )
+
         elif cfg.delayBin_mode == 'QUANTILE':
        	    shotsData = shotsData[ (shotsData.delay > binStart) & (shotsData.delay < binEnd) ]
-       	    delayBins = shotsData.groupby( pd.qcut( shotsData.delay, cfg.delayBinNum ) )
+       	    delayBins = shotsData.groupby( pd.qcut( shotsData.delay, cfg.delayBinNum ,
+                                                    duplicates='drop') )
+            delays = np.array( [name.mid for name, _ in delayBins] )
+
         else:
             raise Exception("binning mode not valid")
 
@@ -190,25 +194,19 @@ if not cfg.onlyplot:
 
             diffAcc[binId]  += -utils.traceAverage(delayBinTrace, accumulate=True)
             pumpAcc[binId]  += -utils.traceAverage(pumpBinTrace, accumulate=True)
+
             binCount[binId] += delayBinTrace.shape[0]
 
     print(f"Binning took {time.time()-tStart} s to run")
-
     idx.close()
     tr.close()
 
-    #get axis labels
-    delays = np.array( [name.mid for name, _ in delayBins] )
-    #delays = np.array([bins["delay"].mean().values, bins["delay"].std().values])
-
     evConv = utils.mainTofEvConv(pulses.retarder.mean())
     evs = evConv(shotsDiff.iloc[0].index.to_numpy(dtype=np.float32))
-
     diffAcc /= binCount[:,None]
     pumpAcc /= binCount[:,None]
     diffAcc = utils.jacobianCorrect(diffAcc, evs)
     pumpAcc = utils.jacobianCorrect(pumpAcc, evs)
-
     # make dataframe and save data
     if cfg.writeOutput:
         np.savez(cfg.output.path + cfg.output.fname,
@@ -241,13 +239,14 @@ if cfg.delayOffset:
 
 #plot resulting image
 if cfg.plots.delay2d:
-    ROI = slice(np.abs(evs - 270).argmin() , None)
+    #plt.rcParams.update({'font.size': 22})
+    ROI = slice(np.abs(evs - 170).argmin() , np.abs(evs - 90).argmin())
     plt.figure(figsize=(9, 7))
     plt.suptitle("Kinetic Energy vs Delay.")
-    cmax = np.percentile(np.abs(diffAcc[:,ROI]),99.5)
-    plt.pcolormesh(evs[ROI], delays, diffAcc[:,ROI],
+    cmax = np.percentile(np.abs(diffAcc[:,ROI]),95.5)
+    plt.pcolormesh(- evs[ROI] + 270, delays, diffAcc[:,ROI],
                    cmap='bwr', vmax=cmax, vmin=-cmax)
-    plt.xlabel("Kinetic energy (eV)")
+    plt.xlabel("Binding energy (eV)")
     plt.ylabel("Delay (ps)")
 
 
@@ -298,10 +297,11 @@ if cfg.plots.augerZeroX:
         plt.text(0.95, 0.80, 'c)', transform=ax3.transAxes)
         plt.xlabel("delay [ps]")
         plt.ylabel("CS Coulomb\nenergy")
+        ax1 = f.add_subplot(gs[1], sharex=ax3)
     else:
         gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
+        ax1 = f.add_subplot(gs[1])
 
-    ax1 = f.add_subplot(gs[1], sharex=ax3)
     plt.text(0.95, 0.80, 'b)', transform=ax1.transAxes)
 
     plt.ylabel("Diff. signal\nintensity [au]")
@@ -423,6 +423,8 @@ if cfg.plots.photoShift:
 
 
 if cfg.plots.timeZero:
+    plt.rcParams.update({'font.size': 17})
+
     #Calulates cross correlation between a and step function, seems to work
     def stepCorr(a):
         cuma = np.cumsum(a)
@@ -430,13 +432,21 @@ if cfg.plots.timeZero:
         return suma - cuma
 
     ROI = slice(np.abs(evs - cfg.plots.timeZero[1]).argmin() , np.abs(evs - cfg.plots.timeZero[0]).argmin())
-    integ = diffAcc[:, ROI].sum(axis=1)
-    integ-= integ.mean()
+    integ = np.abs( diffAcc[:, ROI] ).sum(axis=1)
 
-    xcorr = stepCorr(integ)
+    integShift = integ - integ.mean()
+    xcorr = stepCorr(integShift)
 
-    plt.figure()
-    plt.plot(delays,integ)
-    plt.plot(delays,xcorr)
+    xcorr /= np.max(xcorr)
+    integ /= np.max(integ)
 
+    fig, ax1 = plt.subplots(figsize=(10,7))
+    fig.suptitle("BAM corrected")
+    ax1.set_xlabel('Pump-Probe delay [fs]')
+    ax1.set_ylabel('Differential signal intensity [a.u.]')
+    ax1.plot(delays,integ, 'o-', color='C0')
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('x-correlation with step function [a.u]')
+    ax2.plot(delays,xcorr, color='C1')
+    fig.subplots_adjust(right=0.88)
 plt.show()

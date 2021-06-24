@@ -19,7 +19,7 @@ cfg = { 'data' : { 'path'     : '/media/Fast1/ThioUr/processed/',
                  },
         'time' : { #'start' :datetime(2019,3,31,8,25,0).timestamp(),
                    #'stop'  :datetime(2019,3,31,8,25,10).timestamp(),
-                   'start' : datetime(2019,4,1,3,10,0).timestamp(),
+                   'start' : datetime(2019,4,1,3,10,10).timestamp(),
                    'stop'  : datetime(2019,4,1,3,10,20).timestamp(),
                  },
         'plots':

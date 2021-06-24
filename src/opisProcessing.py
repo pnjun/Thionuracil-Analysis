@@ -23,6 +23,7 @@ from utils import Slicer
 import opisUtils as ou
 from datetime import datetime
 import numba
+import matplotlib.pyplot as plt
 
 PREFIX = '/FL2/Photon Diagnostic/Wavelength/OPIS tunnel/'
 
@@ -36,7 +37,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                         },
            'output'   : {
                           'folder' : '/media/Fast1/',
-                          'fname'  :  'second_block_copy.h5',
+                          'fname'  :  'temp_second_block_copy.h5',
                           'start' : datetime(2019,3,30,23,5,0).timestamp(),
                           'stop'  : datetime(2019,3,30,23,15,0).timestamp(),
                         },
@@ -73,6 +74,7 @@ cfg = {    'data'     : { 'path'     : '/media/Data/ThioUr/raw/',
                         },
            'chunkSize': 1200, #How many macrobunches to read/write at a time. Increasing increases RAM usage
 
+           'dont'
            'ampliRange': np.linspace(5, 80, 12),
            'enerRange' : np.linspace(-3, 7, 32)
          }
@@ -158,6 +160,13 @@ for fname in flist:
             shots2 = opisSlicer2( dataf[cfg.hdf.opisTr2][sl], pulses[sl])
             shots3 = opisSlicer3( dataf[cfg.hdf.opisTr3][sl], pulses[sl])
             traces = [shots0, shots1, shots2, shots3]
+
+            #plt.plot(evConv[0](shots0.columns), -shots0.mean())
+            #plt.plot(evConv[1](shots1.columns), -shots1.mean())
+            #plt.plot(evConv[2](shots2.columns), -shots2.mean())
+            #plt.plot(evConv[3](shots3.columns), -shots3.mean())
+            #plt.show()
+            #exit()
 
             fitter = ou.evFitter2ElectricBoogaloo(pulses[sl].gasID.iloc[0],
                                                   evConv,traces[0].columns,

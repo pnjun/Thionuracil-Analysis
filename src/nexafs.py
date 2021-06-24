@@ -11,7 +11,6 @@ from utils import mainTofEvConv, filterPulses, shotsDelay
 from numba import cuda
 import cupy as cp
 
-import matplotlib
 matplotlib.use("GTK3Agg")
 
 cfg = {    'data'     : { 'path'     : '/media/Fast1/ThioUr/processed/',
@@ -343,4 +342,3 @@ plt.tight_layout()
 plt.savefig(cfg.output.img+tag+"_roi_comp.png", dpi=150)
 plt.close(f4)
 print("Done :-)")
-
